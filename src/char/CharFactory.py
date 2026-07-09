@@ -3,9 +3,13 @@ from typing import TYPE_CHECKING
 
 from typing_extensions import Any
 
+from src.char.Adler import Adler
+from src.char.Baicang import Baicang
 from src.char.BaseChar import BaseChar, Element
 from src.char.Chiz import Chiz
+from src.char.Daphneel import Daphneel
 from src.char.Fadia import Fadia
+from src.char.Hania import Hania
 from src.char.Hotori import Hotori
 from src.char.Jiuyuan import Jiuyuan
 from src.char.Lacrimosa import Lacrimosa
@@ -24,6 +28,10 @@ if TYPE_CHECKING:
 
 char_dict: dict[str, dict[str, Any]] = {
     "char_default": {"cls": BaseChar},
+    "char_baicang": {"cls": Baicang, "cn_name": "白藏", "element": Element.RED},
+    "char_adler": {"cls": Adler, "cn_name": "阿德勒", "element": Element.RED},
+    "char_daphneel": {"cls": Daphneel, "cn_name": "达芙蒂尔", "element": Element.PURPLE},
+    "char_hania": {"cls": Hania, "cn_name": "哈妮娅", "element": Element.BLUE},
     "char_zero": {"cls": Zero, "cn_name": "零", "element": Element.WHITE},
     "char_mint": {"cls": Mint, "cn_name": "薄荷", "element": Element.GREEN},
     "char_jiuyuan": {"cls": Jiuyuan, "cn_name": "九原", "element": Element.GREEN},
@@ -98,9 +106,7 @@ def get_char_by_pos(task: "BaseCombatTask", box: "Box", index: int, old_char: Ba
     cropped = box.crop_frame(task.frame)
     # Fast path check: if we already have an old_char, specifically test its matching only
     if old_char and old_char.confidence > 0.8:
-        is_match, match_id, sim = manager.match_feature(
-            task, cropped, target_char=old_char.char_id
-        )
+        is_match, match_id, sim = manager.match_feature(task, cropped, target_char=old_char.char_id)
         if is_match and match_id == old_char.char_id:
             return _build_char_instance(task, index, match_id, sim, manager)
 

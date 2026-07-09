@@ -169,3 +169,88 @@ Python 命令应优先使用仓库虚拟环境。Codex 在本仓库中应直接�
 - 运行了哪些验证命令。
 - 哪些验证未运行以及原因。
 - 如果改动涉及自动化安全边界、声音捕获、战斗状态或用户数据，说明风险和默认行为。
+
+## 战斗角色开发规则
+
+> 以下规则适用于所有角色自动化实现。优先级从高到低不可逾越。
+
+### 核心优先级
+
+```
+1. 稳定 — 不崩、不卡、不残留按键、不伪造状态
+2. 高效自动化 — 最大化有效输出时间，最小化人工干预
+3. 简洁 — 用最少的代码表达完整逻辑，但不牺牲稳定性
+4. 美观 — 代码可读、日志清晰、结构整洁
+```
+
+当两个原则冲突时，高优先级原则胜出。例如：不能为了"高效"而省略异常检查（稳定 > 高效）；不能为了"简洁"而省略必要的中间变量（简洁不影响稳定性时才追求）。
+
+### 稳定
+
+- 所有 `send_key_down` 必须有对应的 `send_key_up`，且放在 `try/finally` 的 `finally` 块中。
+- 禁止在 `except` 中吞掉 `NotInCombatException`、`TaskDisabledException`、`CharDeadException` 或项目既有的中断异常。
+- 任何长循环（>0.5 秒）必须分片执行，每个分片后检查：`is_current_char`、`is_dead`、`check_combat()`、`deadline`。
+- 动作返回值必须真实反映执行结果。`True` 表示实际执行了有效输入；失败、被拦截、角色不可用时返回 `False`。
+- 禁止用兜底动作的执行来伪造主动作的成功。
+- 一个 `ActionIntent` 的 `slot` 必须真实反映它消耗的资源。禁止在 `slot=ULTIMATE` 的 action 内部直接调用 `click_skill()`，绕过 planner 对 SKILL 的 reservation 检查。
+- 需要在 action 内部执行其他 slot 的技能时，必须通过 `context.can_execute_action(self, slot=...)` 检查 reservation。
+- 所有长循环必须有明确的 `deadline`，禁止 `while True`。
+- `click_skill()` 默认超时为 15 秒，爆发窗口内必须使用短超时（建议 2 秒）。
+
+### 高效自动化
+
+- 闪避循环中方向键应尽量持续按住，避免每个分片反复按下/释放造成死时间。
+- 方向键策略（方向、持续 vs 脉冲）属于实机校准项，不可在缺少实机数据时固化。
+- 使用 `self.click(interval=X, key="right")` 而非 `self.click(key="right") + self.sleep(X)`。
+- `describe_role()` 必须正确设置 `role`、`field_preference`、`max_field_time`。
+- `combat_start_priority` 默认为 0（不主动开场）。
+- `MAIN_DPS` 不等于开场角色，开场由 `combat_start_priority` 单独决定。
+- Q/E 均不可用或失败时，使用有限时长的闪避攻击兜底，而非普通平A。
+- 兜底动作的 `priority_ready` 必须为 `False`，不吸引切人评分。
+- E 动作失败后必须 yield fallback_dodge，不能直接 return。
+
+### 简洁
+
+- 每个角色类应有一个 `combat_plan()` 方法和若干私有 helper。
+- helper 方法职责单一：`_dodge_attack` 管理完整闪避（含方向键），`_right_click_burst` 只管右键（不含方向键）。
+- 避免不必要的 `__init__` 重写，除非有实例状态需要初始化。
+- 常量集中定义在类顶部，用注释分组。
+- 动作名使用 `角色名_动作` 格式：`baicang_burst_cycle`、`baicang_first_skill`。
+- 日志前缀统一为 `[角色名]`。
+- 第二 E 使用字符串三态：`SECOND_SKILL_MODE = "observe"`（`disabled | observe | execute`）。
+
+### 美观
+
+- 每个关键步骤有 `self.logger.info(f"{_LOG_PREFIX} ...")` 日志。
+- 日志应能从录屏中对照确认执行流程。
+- 避免在热循环中打印过多日志（每分片最多 1 条）。
+- 类 docstring 只包含已确认的实现策略，不写入未验证的游戏机制。
+- 游戏机制研究放在 `docs/research/`，不放在生产代码注释中。
+- 外部攻略来源标注 `[EXTERNAL]`，不标 `[CONFIRMED-CODE]`。
+- 遵守上游 Ruff 配置：行宽 100、双引号、isort。提交前运行 `ruff format` 和 `ruff check`。
+
+### 测试规范
+
+1. Factory 测试：角色注册、cls、cn_name、element
+2. Role 测试：describe_role 返回值
+3. CombatPlan 测试：动作优先级、entry flow 顺序、can_execute、priority_ready
+4. 状态机测试：第二 E 保护链各阶段、循环中断
+5. 输入安全测试：方向键释放、异常传播、零时长
+6. Planner 集成测试：通过真实 `CombatPlanner.perform_current_char()` 验证 action history、reservation、strict route
+
+- Mock 不应掩盖真实行为。`TestableBaicang` 的 mock 只覆盖输入方法，不覆盖决策逻辑。
+- fake time 不应重复推进：mock 分支推进时间，调用 super 时不推进。
+- 方向键次数断言应精确，不用 `>= 1`。
+- 每个修复项必须有对应的失败测试。
+- 生产代码使用 `_now()` 方法包装 `time.monotonic()`。测试只 patch `_now()`。
+
+### 角色开发模板
+
+1. 调研：确认元素、定位、核心机制（来源标注 `[EXTERNAL]`）
+2. 注册：CharFactory 添加 `char_xxx` 条目
+3. Role：设置 `describe_role()`
+4. CombatPlan：定义动作和 entry flow
+5. 输入安全：`_dodge_attack` / `_right_click_burst` / 方向键 try/finally
+6. 第二技能保护链（如适用）：CD 确认 → streak → once guard → observe/execute
+7. 测试：6 个层次全覆盖
+8. Ruff + pytest 全量验证
