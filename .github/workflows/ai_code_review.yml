@@ -26,6 +26,6 @@ jobs:
           # Optional configurations
           APPROVE_REVIEWS: false
           MAX_COMMENTS: 10 # 0 to disable
-          PROJECT_CONTEXT: "This is a windows python game automation project, for the game Wuthering Waves, it automates game task and combat etc."
+          PROJECT_CONTEXT: "This is a Windows Python game automation project for the game Neverness To Everness (异环). It uses image recognition, OCR, OpenVINO detection, WASAPI audio capture, and simulated input to automate game tasks and combat. The project is built on ok-script framework."
           CONTEXT_FILES: "README.md"
           EXCLUDE_PATTERNS: "**/*.lock,**/*.json,**/*.md,**/*.ico,**/*.png"
