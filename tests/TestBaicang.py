@@ -205,6 +205,18 @@ class TestBaicangCombatPlan(unittest.TestCase):
         ult_action = [a for a in plan.actions if "ultimate" in a.name][0]
         self.assertEqual(ult_action.slot, ActionSlot.ULTIMATE)
 
+    def test_field_claim_when_ultimate_available(self):
+        self.char._ultimate_available = True
+        plan = self.char.combat_plan(None)
+        self.assertTrue(len(plan.claims) > 0)
+        claim = plan.claims[0]
+        self.assertIn("burst", claim.reason.lower())
+
+    def test_no_field_claim_when_ultimate_unavailable(self):
+        self.char._ultimate_available = False
+        plan = self.char.combat_plan(None)
+        self.assertEqual(len(plan.claims), 0)
+
 
 class TestBaicangBurst(unittest.TestCase):
     def setUp(self):

@@ -5,6 +5,7 @@ from src.combat.planner import (
     ActionSlot,
     ActionTag,
     CombatContext,
+    FieldClaim,
     FieldPreference,
     Role,
     RoleProfile,
@@ -49,6 +50,14 @@ class Baicang(BaseChar):
             priority_ready=lambda ctx: False,
         )
 
+        claims = []
+        if self.ultimate_available():
+            claims.append(
+                FieldClaim.high(
+                    reason="baicang burst window (ultimate ready)",
+                )
+            )
+
         def entry():
             skill_result = yield skill
             if skill_result and self.ultimate_available():
@@ -62,7 +71,7 @@ class Baicang(BaseChar):
             if not skill_result:
                 yield fallback_dodge
 
-        return self.plan(skill, ultimate, fallback_dodge, entry=entry)
+        return self.plan(skill, ultimate, fallback_dodge, claims=claims, entry=entry)
 
     def _perform_burst(self, context: CombatContext = None):
         """Q 成功后的爆发输出循环 (参考 Nanally.perform_in_ult)。
