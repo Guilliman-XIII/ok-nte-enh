@@ -122,8 +122,9 @@ class TestAdlerRole(unittest.TestCase):
     def test_field_preference_is_setup_only(self):
         self.assertEqual(self.char.describe_role().field_preference, FieldPreference.SETUP_ONLY)
 
-    def test_max_field_time_positive(self):
-        self.assertGreater(self.char.describe_role().max_field_time, 0)
+    def test_max_field_time_is_zero(self):
+        """GPT5.6 MAJOR 3: max_field_time=0 禁止通用平A fallback。"""
+        self.assertEqual(self.char.describe_role().max_field_time, 0)
 
     def test_combat_start_priority_is_zero(self):
         self.assertEqual(self.char.describe_role().combat_start_priority, 0)
@@ -143,12 +144,22 @@ class TestAdlerCombatPlan(unittest.TestCase):
         ult = [a for a in plan.actions if "ultimate" in a.name][0]
         self.assertEqual(ult.slot, ActionSlot.ULTIMATE)
 
-    def test_entry_stacks_ye_first(self):
-        """入场先叠业层再放 E。"""
+    def test_entry_yields_skill_first(self):
+        """GPT5.6 BLOCKER 4: 叠业在 yield 后执行，不在 yield 前发输入。"""
         plan = self.char.combat_plan(None)
         gen = plan.entry()
         first = next(gen)
         self.assertIn("skill", first.name)
+
+    def test_stacking_happens_in_execute_not_before_yield(self):
+        """叠业在 execute 回调中执行，不在 yield 前发输入。"""
+        plan = self.char.combat_plan(None)
+        gen = plan.entry()
+        first_action = next(gen)
+        # yield 前不应有 normal_attack 调用
+        self.assertEqual(self.char.normal_attack_calls, 0)
+        # 执行 action 后叠业才发生
+        first_action.execute(None)
         self.assertGreater(self.char.normal_attack_calls, 0)
 
     def test_ultimate_yielded_after_skill(self):
@@ -157,6 +168,14 @@ class TestAdlerCombatPlan(unittest.TestCase):
         next(gen)
         second = gen.send(True)
         self.assertIn("ultimate", second.name)
+
+    def test_no_ultimate_on_skill_failure(self):
+        """E 失败时不 yield Q。"""
+        plan = self.char.combat_plan(None)
+        gen = plan.entry()
+        next(gen)
+        with self.assertRaises(StopIteration):
+            gen.send(False)
 
 
 class TestAdlerStackYe(unittest.TestCase):
@@ -192,10 +211,11 @@ class TestAdlerStackYe(unittest.TestCase):
 
 
 class TestAdlerOnCombatEnd(unittest.TestCase):
-    def test_on_combat_end_calls_switch(self):
+    def test_on_combat_end_does_not_switch(self):
+        """GPT5.6 MAJOR 6: on_combat_end 不调用 switch_other_char。"""
         char = TestableAdler()
         char.on_combat_end([])
-        self.assertEqual(char.switch_calls, 1)
+        self.assertEqual(char.switch_calls, 0)
 
 
 # =====================================================================
@@ -230,8 +250,9 @@ class TestDaphneelRole(unittest.TestCase):
     def test_field_preference_is_main_dps(self):
         self.assertEqual(self.char.describe_role().field_preference, FieldPreference.MAIN_DPS)
 
-    def test_max_field_time_positive(self):
-        self.assertGreater(self.char.describe_role().max_field_time, 0)
+    def test_max_field_time_is_zero(self):
+        """GPT5.6 MAJOR 3: max_field_time=0 禁止通用平A fallback。"""
+        self.assertEqual(self.char.describe_role().max_field_time, 0)
 
     def test_combat_start_priority_is_zero(self):
         self.assertEqual(self.char.describe_role().combat_start_priority, 0)
@@ -318,16 +339,24 @@ class TestDaphneelBurst(unittest.TestCase):
         self.assertGreater(self.char.skill_calls, 0)
 
     def test_burst_skill_at_most_once(self):
+        """GPT5.6 BLOCKER 4: burst E attempted/used 分离，最多真实尝试一次。"""
         self.char._skill_available = True
         self.char._perform_burst(None)
         self.assertLessEqual(self.char.skill_calls, 1)
 
+    def test_burst_skill_not_attempted_when_unavailable(self):
+        """E 不可用时不尝试。"""
+        self.char._skill_available = False
+        self.char._perform_burst(None)
+        self.assertEqual(self.char.skill_calls, 0)
+
 
 class TestDaphneelOnCombatEnd(unittest.TestCase):
-    def test_on_combat_end_calls_switch(self):
+    def test_on_combat_end_does_not_switch(self):
+        """GPT5.6 MAJOR 6: on_combat_end 不调用 switch_other_char。"""
         char = TestableDaphneel()
         char.on_combat_end([])
-        self.assertEqual(char.switch_calls, 1)
+        self.assertEqual(char.switch_calls, 0)
 
 
 # =====================================================================
@@ -362,8 +391,9 @@ class TestHaniaRole(unittest.TestCase):
     def test_field_preference_is_setup_only(self):
         self.assertEqual(self.char.describe_role().field_preference, FieldPreference.SETUP_ONLY)
 
-    def test_max_field_time_positive(self):
-        self.assertGreater(self.char.describe_role().max_field_time, 0)
+    def test_max_field_time_is_zero(self):
+        """GPT5.6 MAJOR 3: max_field_time=0 禁止通用平A fallback。"""
+        self.assertEqual(self.char.describe_role().max_field_time, 0)
 
     def test_combat_start_priority_is_zero(self):
         self.assertEqual(self.char.describe_role().combat_start_priority, 0)
@@ -408,10 +438,11 @@ class TestHaniaCombatPlan(unittest.TestCase):
 
 
 class TestHaniaOnCombatEnd(unittest.TestCase):
-    def test_on_combat_end_calls_switch(self):
+    def test_on_combat_end_does_not_switch(self):
+        """GPT5.6 MAJOR 6: on_combat_end 不调用 switch_other_char。"""
         char = TestableHania()
         char.on_combat_end([])
-        self.assertEqual(char.switch_calls, 1)
+        self.assertEqual(char.switch_calls, 0)
 
 
 if __name__ == "__main__":

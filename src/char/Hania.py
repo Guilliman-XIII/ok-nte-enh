@@ -1,5 +1,7 @@
 from src.char.BaseChar import BaseChar
 from src.combat.planner import (
+    ActionSlot,
+    ActionTag,
     CombatContext,
     FieldPreference,
     Role,
@@ -7,16 +9,18 @@ from src.combat.planner import (
 )
 
 _LOG_PREFIX = "[Hania]"
+SKILL_SHORT_TIMEOUT = 2.0
 
 
 class Hania(BaseChar):
     """哈妮娅 - 魂系(BLUE)辅助。
 
     SUB_DPS, SETUP_ONLY: Q 强化领域 → E 部署咕咕子 → 切出。
+    保持简单结构，队伍协调由上层配置决定。
     详细游戏机制见 docs/research/hania.md。
     """
 
-    MAX_FIELD_TIME = 3.0
+    MAX_FIELD_TIME = 0  # 禁止通用平A fallback
 
     def describe_role(self):
         return RoleProfile(
@@ -27,7 +31,14 @@ class Hania(BaseChar):
 
     def combat_plan(self, context: CombatContext):
         ultimate = self.click_ultimate_action(reason="hania ultimate (enhanced domain)")
-        skill = self.click_skill_action(reason="hania skill (deploy 咕咕子)")
+        skill = self.planner_action(
+            tags={ActionTag.SKILL_ACTION},
+            slot=ActionSlot.SKILL,
+            execute=lambda ctx: self.click_skill(time_out=SKILL_SHORT_TIMEOUT),
+            name="hania_skill",
+            reason="hania skill (deploy 咕咕子)",
+            priority_ready=lambda _: self.skill_available(),
+        )
 
         def entry():
             ultimate_result = yield ultimate
@@ -42,5 +53,5 @@ class Hania(BaseChar):
         return self.plan(ultimate, skill, entry=entry)
 
     def on_combat_end(self, chars):
-        """战斗结束后切出，让主C站场。"""
-        self.switch_other_char()
+        """战后清理。不用于战斗内切人。"""
+        pass

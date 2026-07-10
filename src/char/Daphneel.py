@@ -2,6 +2,8 @@ import time
 
 from src.char.BaseChar import BaseChar
 from src.combat.planner import (
+    ActionSlot,
+    ActionTag,
     CombatContext,
     FieldPreference,
     Role,
@@ -9,19 +11,20 @@ from src.combat.planner import (
 )
 
 _LOG_PREFIX = "[Daphneel]"
+SKILL_SHORT_TIMEOUT = 2.0
 
 
 class Daphneel(BaseChar):
-    """达芙蒂尔 - 暗系(PURPLE)主C。
+    """达芙蒂尔 - 暗系(PURPLE)爆发角色。
 
-    Q 优先 (弹反充能后) → E (同振补充)，Q 后进入爆发窗口。
-    弹反为操作依赖，无法自动检测。详细机制见 docs/research/daphneel.md。
+    Q 优先 → Q 后爆发窗口 → burst 内 E 最多尝试一次。
+    弹反检测当前未实现，依赖 ultimate_available() 间接判断。
+    详细游戏机制见 docs/research/daphneel.md。
     """
 
-    MAX_FIELD_TIME = 10.0
+    MAX_FIELD_TIME = 0  # 禁止通用平A fallback；只有 Q/E 就绪时入场
     ULT_BURST_DURATION = 6.0
     BURST_ATTACK_INTERVAL = 0.2
-    SKILL_SHORT_TIMEOUT = 2.0
 
     def describe_role(self):
         return RoleProfile(
@@ -32,7 +35,14 @@ class Daphneel(BaseChar):
 
     def combat_plan(self, context: CombatContext):
         ultimate = self.click_ultimate_action(reason="daphneel ultimate (burst)")
-        skill = self.click_skill_action(reason="daphneel skill (同振)")
+        skill = self.planner_action(
+            tags={ActionTag.SKILL_ACTION},
+            slot=ActionSlot.SKILL,
+            execute=lambda ctx: self.click_skill(time_out=SKILL_SHORT_TIMEOUT),
+            name="daphneel_skill",
+            reason="daphneel skill",
+            priority_ready=lambda _: self.skill_available(),
+        )
 
         def entry():
             ultimate_result = yield ultimate
@@ -48,12 +58,14 @@ class Daphneel(BaseChar):
         """Q 成功后的爆发输出窗口 (参考 Chiz.perform_in_ult)。
 
         - 持续普攻输出，检测 E 是否可用
-        - E 可用时检查 reservation 后释放 (参考 Nanally._try_skill_during_ultimate)
+        - E 最多真实尝试一次：attempted 分离 used
+        - reservation blocked 不消耗 attempted 配额
         - 循环受 ``ULT_BURST_DURATION`` 限时
         """
         self.logger.info(f"{_LOG_PREFIX} burst start")
         start = self._now()
         deadline = start + self.ULT_BURST_DURATION
+        skill_attempted = False
         skill_used = False
 
         while self._now() < deadline:
@@ -66,29 +78,39 @@ class Daphneel(BaseChar):
 
             self.check_combat()
 
-            if not skill_used and self.skill_available():
-                skill_used = self._try_skill_during_burst(context)
+            if not skill_attempted and self.skill_available():
+                blocked = not self._try_skill_during_burst(context)
+                if blocked:
+                    # reservation blocked — 不消耗 attempted 配额，可有限等待
+                    self.logger.debug(f"{_LOG_PREFIX} skill blocked by reservation, will retry")
+                else:
+                    skill_attempted = True
+                    skill_used = True
 
             self.normal_attack()
             self.sleep(self.BURST_ATTACK_INTERVAL)
 
-        self.logger.info(f"{_LOG_PREFIX} burst end")
+        self.logger.info(
+            f"{_LOG_PREFIX} burst end (attempted={skill_attempted}, used={skill_used})"
+        )
 
     def _try_skill_during_burst(self, context: CombatContext = None):
-        """参考 Nanally._try_skill_during_ultimate: 检查 reservation 后释放 E。"""
-        from src.combat.planner import ActionSlot
+        """检查 reservation 后释放 E。
 
+        Returns:
+            True if skill was executed (success or fail).
+            False if blocked by reservation (not attempted).
+        """
         if context is not None and not context.can_execute_action(self, slot=ActionSlot.SKILL):
-            self.logger.debug(f"{_LOG_PREFIX} skill blocked by reservation")
             return False
 
-        self.logger.info(f"{_LOG_PREFIX} second skill during burst")
-        return self.click_skill(time_out=self.SKILL_SHORT_TIMEOUT)
+        self.logger.info(f"{_LOG_PREFIX} skill during burst")
+        self.click_skill(time_out=SKILL_SHORT_TIMEOUT)
+        return True
 
     def _now(self):
-        """可 patch 的时钟，供测试覆盖。"""
         return time.monotonic()
 
     def on_combat_end(self, chars):
-        """战斗结束后切人。"""
-        self.switch_other_char()
+        """战后清理。不用于战斗内切人。"""
+        pass
