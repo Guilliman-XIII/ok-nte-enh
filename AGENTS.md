@@ -116,8 +116,8 @@ Python 命令应优先使用仓库虚拟环境。Codex 在本仓库中应直接�
 
 - `AutoCombatTask` 只应协调战斗循环；角色动作和 planner 策略放在 `BaseCombatTask`、`BaseChar` 或 `src/combat/planner/`。
 - `CombatCheck` 的战斗状态检测影响所有自动战斗入口。调整入战/脱战、boss、目标、Lv、血条、uncertain 状态时必须补测试或说明人工验证。
-- 角色实现优先覆盖 `describe_role()`、`combat_intents()`、`combat_policies()` 和小型动作 helper。
-- `combat_intents()` 必须保持声明式，不要在评分扫描中发送输入、切人、点击或发布副作用请求。
+- 角色实现优先覆盖 `describe_role()`、`combat_plan()`、`combat_policies()` 和小型动作 helper。
+- `combat_plan()` 必须保持声明式，不要在评分扫描中发送输入、切人、点击或发布副作用请求。
 - 协作请求应通过 planner 公开 API 表达，不读取或修改 `CombatContext` 内部字段。
 - 修改 planner 公开 API 时同步更新 `docs/combat_planner.md` 和 `tests/TestCombatPlanner.py`。
 - 角色死亡、切人失败、动画过长、终结技点击失败等路径要保持可恢复或抛出既有异常，不要无限循环。

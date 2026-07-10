@@ -5,7 +5,6 @@ from src.combat.planner import (
     ActionSlot,
     ActionTag,
     CombatContext,
-    FieldClaim,
     FieldPreference,
     Role,
     RoleProfile,
@@ -19,9 +18,11 @@ class Baicang(BaseChar):
 
     结构参考 Nanally: E/Q 分离为 planner-visible action，
     Q 成功后进入角色专属爆发循环，循环内第二 E 检查 SKILL reservation。
+
+    详细游戏机制见 docs/research/baicang.md。
     """
 
-    MAX_FIELD_TIME = 2.0
+    MAX_FIELD_TIME = 0  # 禁止 Planner 通用平A fallback；白藏用专属 dodge action
     ULT_FIELD_DURATION = 8.0
     FALLBACK_DODGE_DURATION = 1.5
     DODGE_CLICK_INTERVAL = 0.12
@@ -30,7 +31,8 @@ class Baicang(BaseChar):
     SECOND_SKILL_MODE = "observe"  # disabled | observe | execute
     SKILL_READY_STREAK_THRESHOLD = 3
     SKILL_SHORT_TIMEOUT = 2.0
-    DEFAULT_DIRECTION_KEY = "w"
+    DEFAULT_DIRECTION_KEY = None  # 第一轮实机不按方向键，先验证右键本身有效
+    POST_SKILL_DODGE_DURATION = 1.0  # E 成功但 Q 失败时的短右键输出
 
     def describe_role(self):
         return RoleProfile(
@@ -40,7 +42,14 @@ class Baicang(BaseChar):
         )
 
     def combat_plan(self, context: CombatContext):
-        skill = self.click_skill_action(reason="baicang skill")
+        skill = self.planner_action(
+            tags={ActionTag.SKILL_ACTION},
+            slot=ActionSlot.SKILL,
+            execute=lambda ctx: self.click_skill(time_out=self.SKILL_SHORT_TIMEOUT),
+            name="baicang_skill",
+            reason="baicang skill",
+            priority_ready=lambda _: self.skill_available(),
+        )
         ultimate = self.click_ultimate_action(reason="baicang ultimate")
         fallback_dodge = self.planner_action(
             tags={ActionTag.DEFAULT_ACTION, ActionTag.DAMAGE},
@@ -50,14 +59,6 @@ class Baicang(BaseChar):
             priority_ready=lambda ctx: False,
         )
 
-        claims = []
-        if self.ultimate_available():
-            claims.append(
-                FieldClaim.high(
-                    reason="baicang burst window (ultimate ready)",
-                )
-            )
-
         def entry():
             skill_result = yield skill
             if skill_result and self.ultimate_available():
@@ -65,36 +66,41 @@ class Baicang(BaseChar):
 
             ultimate_result = yield ultimate
             if ultimate_result:
-                self._perform_burst(context)
+                self._perform_burst(context, first_skill_succeeded=bool(skill_result))
                 return
 
-            if not skill_result:
+            if skill_result:
+                self._post_skill_dodge()
+            else:
                 yield fallback_dodge
 
-        return self.plan(skill, ultimate, fallback_dodge, claims=claims, entry=entry)
+        return self.plan(skill, ultimate, fallback_dodge, entry=entry)
 
-    def _perform_burst(self, context: CombatContext = None):
+    def _perform_burst(self, context: CombatContext = None, first_skill_succeeded: bool = False):
         """Q 成功后的爆发输出循环 (参考 Nanally.perform_in_ult)。
 
-        - 方向键在整个循环期间持续按住
+        - 方向键在整个循环期间持续按住（如果配置了）
         - 循环受 ``ULT_FIELD_DURATION`` 限时
         - 每个分片后检查: deadline、is_current_char、is_dead、check_combat
-        - 第二 E 保护链 (参考 Nanally._try_skill_during_ultimate)
+        - 第二 E 保护链仅在第一 E 真实成功时启用
         """
-        self.logger.info(f"{_LOG_PREFIX} burst start")
+        self.logger.info(
+            f"{_LOG_PREFIX} burst start (first_skill_succeeded={first_skill_succeeded})"
+        )
         start = self._now()
         deadline = start + self.ULT_FIELD_DURATION
         direction_key = self.DEFAULT_DIRECTION_KEY
 
-        track_second_skill = self.SECOND_SKILL_MODE != "disabled"
+        track_second_skill = self.SECOND_SKILL_MODE != "disabled" and first_skill_succeeded
         cooldown_confirmed = False
         ready_streak = 0
         second_skill_done = False
         last_check = start
 
         try:
-            self.task.send_key_down(direction_key)
-            self.sleep(0.1)
+            if direction_key is not None:
+                self.task.send_key_down(direction_key)
+                self.sleep(0.1)
 
             while self._now() < deadline:
                 if not self.is_current_char:
@@ -153,7 +159,8 @@ class Baicang(BaseChar):
                 second_skill_done = True
                 self.sleep(0.1)
         finally:
-            self.task.send_key_up(direction_key)
+            if direction_key is not None:
+                self.task.send_key_up(direction_key)
 
         self.logger.info(f"{_LOG_PREFIX} burst end")
 
@@ -170,6 +177,15 @@ class Baicang(BaseChar):
         else:
             self.logger.info(f"{_LOG_PREFIX} second skill click failed")
         return clicked
+
+    def _post_skill_dodge(self):
+        """E 成功但 Q 失败时的短右键输出，避免 E-only 路径无核心输出。"""
+        self.logger.info(f"{_LOG_PREFIX} post-skill dodge (E ok, Q fail)")
+        self.continues_right_click(
+            self.POST_SKILL_DODGE_DURATION,
+            interval=self.DODGE_CLICK_INTERVAL,
+            direction_key=self.DEFAULT_DIRECTION_KEY,
+        )
 
     def _execute_fallback_dodge(self):
         """Q/E 均不可用时的兜底：有限时长的闪避攻击。"""
@@ -197,6 +213,8 @@ class Baicang(BaseChar):
         interval = self.DODGE_CLICK_INTERVAL
         start = self._now()
         while self._now() - start < duration:
+            if not self.is_current_char or self.is_dead:
+                return
             self.click(interval=interval, key="right")
 
     def _now(self):
@@ -204,5 +222,5 @@ class Baicang(BaseChar):
         return time.monotonic()
 
     def on_combat_end(self, chars):
-        """战斗结束后尝试切人，释放主 C 站场。"""
-        self.switch_other_char()
+        """战斗结束后清理。"""
+        pass
