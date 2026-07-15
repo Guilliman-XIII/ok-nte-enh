@@ -559,7 +559,9 @@ P4：
 - Planner 已修复 entry generator 在收尾发布协作请求后立即返回时静默丢失请求的问题。
 - 白藏开轴的辅助动作已全部改为可失败跳过；达芙蒂尔改为短切副 C，早雾、哈妮娅和达芙蒂尔
   在目标队完成普通入场后会显式请求白藏回场，避免白藏技能冷却时辅助留场空转。
-- 当前聚焦验证为 `217 passed, 3 subtests passed`，并通过目标文件 ruff、py_compile 和 diff 检查。
+- 当前聚焦验证为 `221 passed, 3 subtests passed`，并通过目标文件 ruff、py_compile 和 diff 检查。
+- 新增 `src.combat.AbyssLogAnalyzer`，可从本地日志提取 opener/cycle 的动作、切人、环合、超时、
+  optional skip 和声音事件，并把缺少回白藏或缺少两次真实环合列为诊断问题。
 
 当前 Go/No-Go：**代码级 Go，深渊交付级 No-Go**。在用户完成至少一轮两队实机开轴验证前，不能
 声称已经可靠触发失谐/盈蓄，也不能声称能拿满本期深渊奖励。联调入口见

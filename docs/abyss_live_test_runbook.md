@@ -80,6 +80,15 @@ strict route fulfilled: Chiz Yingxu abyss opener
 第一轮不追求通关时间。先确认动作语义和顺序，再根据证据调整动画等待、route deadline、角色
 站场和金谷阈值；验证通过后再上高层/Boss 做满奖励冲刺。
 
+测试结束后可直接生成摘要：
+
+```powershell
+.\.venv\Scripts\python.exe -m src.combat.AbyssLogAnalyzer logs\ok-script.log
+```
+
+摘要只读取本地日志，列出每次 opener/cycle 的状态、动作、真实环合、切人、可选步骤跳过和声音
+接管次数。它不修改配置，也不替代录屏中的技能与 HUD 验证。
+
 ## 5. 当前已知限制
 
 - 白藏队当前是哈妮娅竞速版，没有按血线自动切法蒂娅。
