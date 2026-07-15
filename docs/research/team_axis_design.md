@@ -1,136 +1,274 @@
-# 队伍轴设计研究
+# 双队自动战斗路线设计
 
-> 基于 Hotori 队伍轴模式分析，规划 P5 阶段的四人队伍轴实现方案。
+> 更新日期：2026-07-16
+> 目标：将用户确定的两套阵容转化为可验证、可降级的 OKNTE 队伍级战斗策略。
+> 边界：阵容定位来自用户需求；技能时长、状态识别阈值和最优轮转仍需实机验证。
 
-## Hotori 模式分析
+## 1. 决策结论
 
-### 核心 API
+开发顺序固定为：
 
-| API | 用途 | 生命周期 |
-| --- | --- | --- |
-| `combat_policies(context)` | 队伍加载时发布常驻 reservation | 整场战斗 |
-| `context.reserve_actions(reservations, reason, until, on_finish)` | 保留队友动作槽位 | until 条件过期 |
-| `context.request_route(steps, reason, until, on_finish)` | 固定顺序协作路线 | until 条件过期 |
-| `context.request_switch(char, reason, until)` | 请求切人 | until 条件过期 |
-| `FollowupStep.for_action(char, slot, reason, optional)` | 路线步骤：角色执行某 slot | 路线内 |
-| `FollowupStep.for_entry_reaction(char, reason)` | 路线步骤：入场反应 | 路线内 |
-| `ActionReservation.for_action(char, slot)` | 动作保留：防止其他角色使用 | until 条件过期 |
-| `FieldClaim.high(reason, expected_entry)` | 入场诉求：提高切人评分 | 单次入场 |
-| `Planner.NEVER_EXPIRES` | 永不过期 | 整场战斗 |
+1. 白藏失谐队基础版：`早雾 + 法蒂娅 + 达芙蒂尔 + 白藏`。
+2. 白藏失谐队首领模式与竞速变体：竞速时以哈妮娅替换法蒂娅。
+3. 小吱盈蓄队：`九原 + 翳 + 零 + 小吱`。
 
-### Hotori 实现要点
+第一队优先，是因为白藏、达芙蒂尔、早雾、法蒂娅和哈妮娅都已有内置注册；第二队虽然小吱、
+九原、零已有实现，但翳尚未注册，金谷和盈蓄也缺少足够可靠的状态感知。
 
-1. **`combat_policies()`**：识别队伍中的 Zero 和 Nanally，为 Zero 的 SKILL 槽位发布常驻 reservation
-2. **`combat_plan()`**：
-   - `ultimate` action：Q 成功后发布后续 reservation 和 request_switch
-   - `setup` action：E 成功后发布 record window route
-3. **`_execute_hotori_setup()`**：
-   - E 成功后调用 `context.request_route(steps)` 创建协作路线
-   - 路线步骤按顺序执行：队友 Q → 队友 E → Nanally 入场反应
-   - 同时发布 `record_window_holds` reservation 保护路线中的动作
-4. **`_execute_hotori_ultimate()`**：
-   - Q 成功后发布 `after_ultimate_reservations`
-   - 通过 `context.request_switch(team.zero)` 请求切换到 Zero
-5. **数据结构**：`HotoriRecordPlan` dataclass 集中管理路线步骤和 reservation
+不同时并行实现两队。先把第一队做成可以解释、可以回退、可以用实机证据验收的模板，再复用
+相同的 Planner 接入方式开发第二队。
 
-## 目标队伍轴设计
+## 2. 设计原则
 
-### 队伍轮转
+### 2.1 route 目标动作自包含
 
+只有会被 strict route 直接点名的 `ActionIntent`，才必须在 `execute` 中完成该步骤成立所需的
+全部效果。strict route 不会替角色补做 `entry()` 中的前置或后续逻辑。
+
+普通切入仍应保留上游的 entry flow 模式。例如 `Nanally`、`Chiz` 会在 Q 成功后由 entry 继续
+执行爆发循环；队伍轴应通过 `request_switch()` 或 `FollowupStep.for_entry_reaction()` 让主 C
+正常回场，而不是直接强制其 Q。这样可以复用现有完整逻辑，避免为队伍轴重写角色。
+
+### 2.2 路线只约束关键窗口
+
+`request_route()` 只用于开场、增益窗口和明确的机制链路，不把整场战斗写成永久轮转。普通阶段
+继续由 Planner 评分决定；短切角色完成动作后用有期限的 `request_switch()` 返回主 C。
+
+### 2.3 reservation 必须对应真实机制不变量
+
+默认使用绑定 route handle、deadline 或状态退出条件的短生命周期 reservation。只有同时满足
+以下条件时才允许 `Planner.NEVER_EXPIRES`：
+
+- 这是类似 `Hotori` 整场保留零 E 的角色机制不变量，而不是为了修正评分。
+- strict route 能在正确步骤覆盖该保留，关键动作不会被永久封死。
+- planner reset 能清理保留，且有真实 Planner 测试覆盖普通阻止和 route 覆盖。
+
+目前没有证据表明白藏或小吱的 SKILL 满足这些条件，因此两队暂不使用永久 reservation。
+
+### 2.4 状态不可见时保守降级
+
+无法可靠识别血线、金谷、盈蓄或增益覆盖时，不伪造状态成立：
+
+- 法蒂娅退化为低频主动维护，不声称已经按危险血线响应。
+- 小吱退化为有界站场和保守技能释放，不声称已经按金谷最优决策。
+- 翳、九原或零的关键铺垫失败时，路线过期并回到主 C，不无限等待。
+
+### 2.5 先记录再调参
+
+队伍轴落地前先增加最小结构化战斗轨迹，至少记录：时间、当前角色、动作、结果、切人理由、
+route/reservation 状态和降级原因。实机录屏必须能与轨迹按时间对齐。
+
+### 2.6 优先复用上游角色范式
+
+- `Hotori`：由机制拥有者识别队伍、构造 route 和 reservation，并把生命周期绑定到真实窗口。
+- `Zero`：普通状态门控技能，但用 `strict_route_wants_action()` 允许合法路线覆盖。
+- `Jiuyuan`：strict route 期间禁用子弹 fallback，避免路线步骤被额外动作干扰。
+- `Healer`：用 SUPPORT tag、短站场和离场时长触发维护，不依赖不存在的血线接口。
+- `Nanally/Chiz/Shinku`：完整爆发由普通 entry flow 管理，队伍协作只负责让其正确回场。
+
+两队实现先组合这些模式。只有现有 API 无法安全表达队伍需求时，才增加新的队伍级抽象。
+
+## 3. 第一队：白藏失谐队
+
+阵容：`白藏 + 达芙蒂尔 + 早雾 + 法蒂娅`
+
+竞速变体：`白藏 + 达芙蒂尔 + 早雾 + 哈妮娅`
+
+### 3.1 角色职责与当前差距
+
+| 角色 | 目标职责 | 当前实现 | 必须补齐 |
+| --- | --- | --- | --- |
+| 白藏 | 主控、持续输出、闪避 | 已有 E/Q/右键 burst 和保守第二 E | 实机校准；支持队伍窗口回场；首领模式减少被普通评分切走 |
+| 达芙蒂尔 | 短切副 C、补失谐与暗伤 | 已有 Q 优先和有界 burst，但仍标记为 MAIN_DPS | 改为短切语义；动作完成后限时请求白藏；避免无技能时入场 |
+| 早雾 | 开场聚怪、控制、增伤 | 上游通用 Q/E 顺序 | 优先复用现有动作；实机确认对应 slot 后再作为 route 步骤 |
+| 法蒂娅 | 回血、分伤、容错 | 仅通用 Q/E，角色定位还是 SUB_DPS | 改为 SUPPORT；维护动作；血线信号缺失时提供保守 fallback |
+| 哈妮娅 | 竞速增益位 | 已有 Q→E 骨架 | 成功后发布短增益窗口并请求白藏，不做永久保留 |
+
+`CharFactory` 当前中文名写作“法帝娅”，用户阵容写作“法蒂娅”。实现前应确认游戏内正式名称，
+避免角色中心出现同一角色两种名称；这不影响类名 `Fadia`。
+
+### 3.2 普通战斗状态机
+
+| 状态 | 进入条件 | 主要动作 | 成功出口 | 失败/超时出口 |
+| --- | --- | --- | --- | --- |
+| `OPEN_CONTROL` | 新战斗开始，早雾聚怪动作可用 | 早雾聚怪/控制 | 进入生存维护或副 C 窗口 | 直接进入白藏站场，不阻塞 |
+| `SURVIVAL_MAINTAIN` | 法蒂娅维护动作到期；未来可叠加危险血线 | 法蒂娅 E/Q | 进入副 C 窗口 | 返回白藏 |
+| `DAPHNEEL_BURST` | 达芙蒂尔 Q 或 E 真实可用 | 达芙蒂尔短切动作 | 请求白藏回场 | 动作失败立即回白藏 |
+| `BAICANG_FIELD` | 前置完成、路线过期或无更高优先级紧急动作 | 白藏 E/Q/右键持续输出 | 保持站场 | 生存紧急、有效短切窗口或死亡才离场 |
+
+推荐开场关键路线：
+
+```text
+早雾控制 -> [法蒂娅维护，可选] -> [达芙蒂尔可用动作，可选] -> 白藏
 ```
-哈妮娅(Q→E) → 阿德勒(叠业→E→Q) → 达芙蒂尔(Q→E→爆发) → 白藏(E→Q→闪避输出)
+
+方括号步骤必须是可选步骤。动作不可用、角色死亡或 route deadline 到期时直接跳过，不能让
+Planner 等待 CD。最后一步使用 `request_switch()` 或合法入场反应让白藏正常进入 entry flow，
+不直接 route 白藏 Q。白藏回场后不维持固定循环；后续只在控制、维护或副 C 动作真正可用时短切。
+
+### 3.3 生存优先级
+
+当前 Planner 没有可供角色策略直接使用的己方血线接口，`is_dead` 只能判断死亡，不能满足“血线
+危险时优先处理”。因此分两步实现：
+
+1. 第一版：法蒂娅按有限冷却进行低频维护，优先级高于普通副 C，低于战斗脱离与输入安全。
+2. 第二版：增加只读的队伍生存信号，至少区分 `SAFE / PRESSURED / CRITICAL / UNKNOWN`；
+   `CRITICAL` 才允许打断普通输出窗口，`UNKNOWN` 使用第一版策略。
+
+不要在角色代码中直接散落屏幕坐标。血线识别应进入 `BaseCombatTask` 或现有场景感知层，再通过
+稳定的只读接口供 Planner 使用。
+
+### 3.4 首领模式
+
+当前代码没有稳定的首领场景信号。首版应使用明确配置选择首领策略，不伪装成自动识别。
+
+首领策略：
+
+- 早雾只在开场或聚怪/控制效果已被实机证明对该首领有效时入场。
+- 达芙蒂尔只有 Q/E 可用才短切；不得因 MAIN_DPS 基础分与白藏来回抢场。
+- 白藏获得最低连续站场保护，普通辅助动作不能频繁打断。
+- 闪避和战斗存活高于路线完成；route 过期后立即解锁。
+- 法蒂娅只因维护到期或危险血线入场，不为“技能亮了”而切人。
+
+### 3.5 竞速模式
+
+竞速模式仅在用户明确选择“生存无压力”时启用：
+
+```text
+早雾控制 -> 哈妮娅 Q/E -> [达芙蒂尔可用动作，可选] -> 白藏输出
 ```
 
-### 各角色队伍轴职责
+哈妮娅动作成功后发布短生命周期的白藏回场请求。不得永久 reservation 白藏 SKILL，也不得把
+哈妮娅写成整场强制开场角色；开场优先应由队伍模式和动作可用性共同决定。
 
-#### 哈妮娅 (SUB_DPS, 开场角色)
+### 3.6 第一队验收门槛
 
-```python
-def combat_policies(self, context):
-    # 常驻：保护主C的 SKILL 槽位
-    if self._find_main_dps():
-        context.reserve_actions(
-            [ActionReservation.for_action(main_dps, ActionSlot.SKILL)],
-            reason="hania protects main_dps skill",
-            until=Planner.NEVER_EXPIRES,
-        )
+- 真实 `CombatPlanner` 测试覆盖开场路线、可选步骤跳过、角色死亡、route 超时和白藏回场。
+- 达芙蒂尔与法蒂娅在动作不可用时不会吸引切人。
+- 白藏在首领策略中不会与达芙蒂尔因 MAIN_DPS 评分反复切换。
+- 支持角色单次入场时间有上限，失败后不伪造增益或控制成功。
+- 普通战、首领战、竞速各至少 3 段实机录屏，并能和结构化轨迹对齐。
+- 10 分钟连续战斗无方向键残留、无限等待、重复空放和异常高频切人。
 
-def _execute_hania_setup(self, context):
-    # Q+E 成功后发布 buff window
-    if context is not None:
-        context.request_switch(
-            self._find_next_support(),  # Adler
-            reason="hania buff deployed, switch to next support",
-        )
+## 4. 第二队：小吱盈蓄队
+
+阵容：`小吱 + 九原 + 翳 + 零`
+
+### 4.1 角色职责与当前差距
+
+| 角色 | 目标职责 | 当前实现 | 必须补齐 |
+| --- | --- | --- | --- |
+| 小吱 | 主控，按金谷与盈蓄状态持续输出 | 大招内用颜色比例粗判技能时机；使用 `time.time()`；循环缺少完整中断检查 | 金谷状态采样、防抖、monotonic deadline、可中断站场状态机 |
+| 九原 | 开场聚怪、速切副 C | Q→E→子弹 fallback | 明确哪个动作负责聚怪；成功后启动铺垫路线；完成后立即离场 |
+| 翳 | 相属性铺垫与完整盈蓄链路 | 未注册内置角色 | 先完成角色识别、动作研究、最小自包含 E/Q，再接队伍路线 |
+| 零 | 环合循环与一定续航 | 已有 `is_cycle_full()` 门控 E | 成功后推进路线；不长时间占场；验证其生存收益是否可观测 |
+
+### 4.2 所需状态
+
+第二队不能只靠“技能亮了”调度，至少需要以下可观测状态：
+
+- `gold_valley`: `LOW / MID / HIGH / UNKNOWN`，来源为小吱现有百分比 UI 的稳定采样。
+- `yingxu`: `INACTIVE / PRIMED / ACTIVE / UNKNOWN`，优先复用环合状态与入场反应事件。
+- `setup_progress`: 九原、翳、零的关键步骤是否真实成功，且带 deadline。
+
+状态判定必须有多帧防抖、超时和 `UNKNOWN`。不得通过固定 sleep 直接把状态改成 `ACTIVE`。
+
+### 4.3 队伍状态机
+
+| 状态 | 进入条件 | 主要动作 | 成功出口 | 失败/超时出口 |
+| --- | --- | --- | --- | --- |
+| `GROUP` | 新战斗开始，九原聚怪动作可用 | 九原聚怪 | `PRIME_YI` | 跳到下一可用铺垫 |
+| `PRIME_YI` | 翳关键动作可用 | 翳相属性铺垫 | `PRIME_ZERO` | 路线过期并回小吱 |
+| `PRIME_ZERO` | 零可推进环合且未满 | 零补状态/环合 | `CHIZ_FIELD` | 已满则跳过；失败回小吱 |
+| `CHIZ_FIELD` | 铺垫完成、盈蓄激活或路线过期 | 小吱持续输出 | 保持站场 | 仅关键铺垫失效、死亡或安全中断时离场 |
+| `REPRIME` | 盈蓄失效且铺垫动作可用 | 最短必要铺垫链 | 回 `CHIZ_FIELD` | 超时回小吱保守输出 |
+
+推荐关键路线：
+
+```text
+九原聚怪 -> 翳关键动作 -> [零补环合，已满则跳过] -> 小吱
 ```
 
-#### 阿德勒 (SUB_DPS)
+最后一步让小吱正常切入并执行现有 `Q -> perform_in_ult() -> E` entry flow，不直接把小吱 Q
+写成 strict route step。九原和零优先原样复用：九原的子弹 fallback 已会在 strict route 中避让，
+零的 E 门控也已允许 route 在需要时覆盖。
 
-```python
-def _execute_adler_setup(self, context):
-    # 叠业+E+Q 成功后发布 shield window
-    if context is not None:
-        context.request_switch(
-            self._find_main_dps(),  # Daphneel or Baicang
-            reason="adler shield deployed, switch to main_dps",
-        )
-```
+小吱站场阶段不按固定周期释放 E：
 
-#### 达芙蒂尔 (MAIN_DPS, 第二输出)
+- `gold_valley=HIGH`：允许高收益技能动作。
+- `gold_valley=LOW`：优先普攻/积累，除非 route 明确要求或技能承担保命。
+- `gold_valley=UNKNOWN`：使用有界保守规则，禁止高频连点。
+- `yingxu=ACTIVE`：抑制普通副 C 抢场，只保留会延长或重建盈蓄的关键短切。
 
-```python
-# Daphneel 接受 support 的 request_switch 进入爆发
-# 无需主动发布 request，由 planner 的 request lifecycle 驱动
-# burst 结束后 on_combat_end → switch_other_char
-```
+### 4.4 第二队准入门槛
 
-#### 白藏 (MAIN_DPS, 最终主C)
+在开始写四人轮转前，必须先满足：
 
-```python
-# Baicang 作为最终主C，接受所有 support 完成后的切人
-# 使用 FieldClaim.high 在 burst window 时抢回场
-def combat_plan(self, context):
-    claims = []
-    if self.ultimate_available():
-        claims.append(
-            FieldClaim.high(
-                reason="baicang burst window",
-                expected_entry=ExpectedEntry(slot=ActionSlot.ULTIMATE),
-            )
-        )
-    return self.plan(skill, ultimate, fallback_dodge, claims=claims, entry=entry)
-```
+1. 翳完成 CharFactory 注册、角色中心绑定验证和独立 E/Q 行为测试。
+2. 小吱金谷识别在三种分辨率下有录屏样本，误判率达到可接受水平。
+3. `is_cycle_full()` 与实际盈蓄/环合关系通过实机确认，不能只依据函数名推断。
+4. 九原聚怪动作得到实机确认，不能把通用 Q/E 顺序直接等同于聚怪成功。
 
-### 实现路线图
+### 4.5 第二队验收门槛
 
-1. **第一步：Hania + Adler 接入 `request_switch`**
-   - 在 E/Q 成功后调用 `context.request_switch(next_char, reason)`
-   - 添加 `_find_main_dps()` / `_find_next_support()` 辅助方法
-   - 添加测试：验证 request_switch 被正确发布
+- 铺垫路线任一步失败都能在 deadline 内回到小吱。
+- 盈蓄激活后，小吱连续站场时间和有效输出占比明显高于其他角色。
+- 小吱不会在低金谷状态高频乱放技能。
+- 零和翳完成关键动作后及时离场，不因普通评分反复抢场。
+- 至少覆盖 `盈蓄成功 / 铺垫失败 / 状态未知 / 角色死亡` 四类 Planner 集成测试。
 
-2. **第二步：Hania 接入 `combat_policies`**
-   - 发布常驻 reservation 保护主C SKILL 槽位
-   - 添加测试：验证 reservation 被正确发布
+## 5. 实施批次
 
-3. **第三步：Baicang 接入 `FieldClaim`**
-   - burst window 时发布 FieldClaim.high
-   - 添加测试：验证 claim 在正确条件下发布
+### P0：建立可信验证基础
 
-4. **第四步：队伍轴集成测试**
-   - 使用真实 `CombatPlanner` 模拟四人轮转
-   - 验证切人顺序、request 生命周期、reservation 保护
-   - 验证失败 fallback 路径
+- 增加最小结构化战斗轨迹。
+- 把 fast、integration、hardware 测试边界固化到 CI。
+- 修正现有“队伍仿真”测试：不仅验证四个角色分别能出招，还要驱动真实切人决策与 route 生命周期。
 
-### 风险与限制
+### P1：第一队基础版
 
-- **实机未验证**：所有队伍轴设计基于代码分析，未经实机验证
-- **角色识别**：`_find_main_dps()` 需要遍历 `self.task.chars` 按 `Role.MAIN_DPS` 识别
-- **request 生命周期**：`until` 条件需要仔细设计，避免永久阻塞
-- **planner 调度**：planner 的切人评分可能与 request 冲突，需要实机调试
-- **复杂度**：队伍轴实现显著增加代码复杂度，需要充分测试
+- 补强早雾和法蒂娅角色语义。
+- 将达芙蒂尔收敛为短切副 C，不与白藏竞争长期站场。
+- 实现有 deadline 的 `早雾 -> 可选法蒂娅 -> 可选达芙蒂尔 -> 白藏` 开场路线。
+- 完成白藏普通战实机校准。
 
-### 依赖
+### P2：第一队模式化
 
-- `FollowupStep`, `ActionReservation`, `FieldClaim`, `ExpectedEntry` 从 `src.combat.planner` 导入
-- `Planner.NEVER_EXPIRES` 常量
-- `CombatContext.request_route()`, `request_switch()`, `reserve_actions()`
+- 增加首领策略的显式配置与最低站场保护。
+- 增加法蒂娅生存状态接口；无法识别时保持低频维护 fallback。
+- 增加哈妮娅竞速替换路线。
+
+### P3：第二队角色与状态感知
+
+- 实现翳的最小内置角色逻辑。
+- 重构小吱 burst 循环并实现稳定金谷采样。
+- 验证九原聚怪和零环合语义。
+
+### P4：第二队队伍轴
+
+- 实现有期限的铺垫 route。
+- 建立盈蓄状态机和失败降级。
+- 完成四场景 Planner 测试与实机闭环。
+
+## 6. 当前不做
+
+- 不引入通用战斗 DSL 或大型队伍编排框架。
+- 不把两队都写成无限重复的固定轮转。
+- 不基于未验证攻略开放白藏第二 E 自动执行。
+- 不在缺少血线信号时声称法蒂娅能危险血线抢救。
+- 不在缺少金谷/盈蓄状态时声称小吱已经实现收益最优技能决策。
+- 不把所有新增角色和 Planner 改造塞进同一个上游 PR。
+
+## 7. 上游提交建议
+
+按可独立审查的行为边界拆分：
+
+1. Planner 轨迹与测试分层。
+2. 早雾/法蒂娅角色修正。
+3. 白藏失谐队 Planner 集成测试与最小队伍轴。
+4. 首领/竞速模式。
+5. 翳角色实现。
+6. 小吱状态感知与盈蓄队伍轴。
+
+每个 PR 都应包含真实行为测试、失败路径和未验证项说明。角色实现与游戏机制研究分开，避免把
+外部攻略假设写成生产代码事实。
