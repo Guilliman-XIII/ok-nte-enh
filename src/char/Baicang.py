@@ -27,7 +27,7 @@ class Baicang(BaseChar):
     ULT_FIELD_DURATION = 8.0
     FALLBACK_DODGE_DURATION = 1.5
     DODGE_CLICK_INTERVAL = 0.12
-    DODGE_SLICE_DURATION = 0.3
+    DODGE_SLICE_DURATION = 0.12
     SKILL_CHECK_INTERVAL = 1.5
     SECOND_SKILL_MODE = "observe"  # disabled | observe | execute
     SKILL_READY_STREAK_THRESHOLD = 3
@@ -178,6 +178,7 @@ class Baicang(BaseChar):
                 if slice_dur > 0:
                     self._right_click_burst(slice_dur)
 
+                self.sleep(0.01)
                 self.check_combat()
 
                 if not track_second_skill or second_skill_done:
@@ -244,11 +245,7 @@ class Baicang(BaseChar):
     def _post_skill_dodge(self):
         """E 成功但 Q 失败时的短右键输出，避免 E-only 路径无核心输出。"""
         self.logger.info(f"{_LOG_PREFIX} post-skill dodge (E ok, Q fail)")
-        self.continues_right_click(
-            self.POST_SKILL_DODGE_DURATION,
-            interval=self.DODGE_CLICK_INTERVAL,
-            direction_key=self.DEFAULT_DIRECTION_KEY,
-        )
+        self._checkpointed_dodge(self.POST_SKILL_DODGE_DURATION)
 
     def _execute_fallback_dodge(self):
         """Q/E 均不可用时的兜底：有限时长的闪避攻击。"""
@@ -257,17 +254,33 @@ class Baicang(BaseChar):
             return False
 
         self.logger.info(f"{_LOG_PREFIX} fallback dodge")
-        self.continues_right_click(
-            self.FALLBACK_DODGE_DURATION,
-            interval=self.DODGE_CLICK_INTERVAL,
-            direction_key=self.DEFAULT_DIRECTION_KEY,
-        )
+        self._checkpointed_dodge(self.FALLBACK_DODGE_DURATION)
 
         if not self.is_current_char or self.is_dead:
             self.logger.info(f"{_LOG_PREFIX} fallback dodge ended (char changed or dead)")
             return False
 
         return True
+
+    def _checkpointed_dodge(self, duration) -> bool:
+        """以短分片输出右键，确保声音闪避/反击能通过 sleep checkpoint 抢占。"""
+        deadline = self._now() + max(duration, 0)
+        direction_key = self.DEFAULT_DIRECTION_KEY
+        try:
+            if direction_key is not None:
+                self.task.send_key_down(direction_key)
+                self.sleep(0.01)
+            while self._now() < deadline:
+                if not self.is_current_char or self.is_dead:
+                    return False
+                remaining = deadline - self._now()
+                self._right_click_burst(min(self.DODGE_SLICE_DURATION, remaining))
+                self.sleep(0.01)
+                self.check_combat()
+        finally:
+            if direction_key is not None:
+                self.task.send_key_up(direction_key)
+        return self.is_current_char and not self.is_dead
 
     def _right_click_burst(self, duration):
         """持续右键点击 ``duration`` 秒，不管理方向键。"""

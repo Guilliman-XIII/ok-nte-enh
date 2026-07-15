@@ -88,6 +88,8 @@ def combat_plan(self, context):
 - 不要在创建 plan 时调用 `context.request_route()`、`reserve_actions()` 或
   `request_tags()`；这些一次性请求应在 action execute 中发布，或在 entry flow
   收到成功 result 后发布。
+- entry flow 可以在处理最后一个 result 后发布请求并立即 `return`；planner 会先消费这些请求，
+  再结束 generator。不要为了避免请求丢失而添加无意义的额外 action。
 - `actions` 是评分和协作匹配目录；`entry` 是普通入场执行流程。
 - `claims` 可以传多个独立入场理由；它们不会叠加分数，planner 只取当前匹配角色的最高优先级 claim。
 - strict route、expected entry、active request 的硬调度优先于普通 entry flow。

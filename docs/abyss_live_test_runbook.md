@@ -64,6 +64,8 @@ strict route fulfilled: Chiz Yingxu abyss opener
 - 翳完成 Q/E 后立即让出场地；小吱应以 Q 接管并进入爆发。
 - 小吱大招窗口最多自动尝试一次 E；换人、死亡或脱战时立刻退出循环。
 - 35 秒后仍未完成时路线必须解锁，不能继续强制等待。
+- 小吱完整爆发后应出现 `strict route locked: Chiz Yingxu abyss cycle`，并重复两次零 E 的环合轴；
+  后续循环不再强制九原先开场聚怪。
 
 ## 4. 首轮回传材料
 
@@ -79,6 +81,6 @@ strict route fulfilled: Chiz Yingxu abyss opener
 ## 5. 当前已知限制
 
 - 白藏队当前是哈妮娅竞速版，没有按血线自动切法蒂娅。
-- 两队只强制首轮开轴，后续由通用 Planner 调度；小吱队尚未自动重复完整双环合轴。
+- 白藏队首轮后由通用 Planner 调度；小吱队会在每次完整 Q 爆发后自动重建双环合轴。
 - 攻略资料只用于提出待验证假设。实现依据仍以游戏实机、OKNTE 日志和用户录屏为准。
 - 自动化存在游戏账号处罚风险；继续沿用 OKNTE README 的风险边界，不进行注入或内存读取。

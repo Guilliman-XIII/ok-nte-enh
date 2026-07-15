@@ -70,7 +70,9 @@ def make_team_char(task, char_cls, index, trace):
     if isinstance(char, (Baicang, Daphneel)):
         char._perform_burst = lambda *args, **kwargs: trace.append((char.name, "BURST"))
     if isinstance(char, Chiz):
-        char.perform_in_ult = lambda *args, **kwargs: trace.append((char.name, "BURST"))
+        char.perform_in_ult = lambda *args, **kwargs: (
+            trace.append((char.name, "BURST")) or True
+        )
     return char
 
 
@@ -89,6 +91,9 @@ class TestBaicangAbyssTeam(unittest.TestCase):
     def _perform_and_switch(self, current):
         current.is_current_char = True
         self.planner.perform_current_char(current)
+        return self._switch_only(current)
+
+    def _switch_only(self, current):
         decision = self.planner.decide_switch(current)
         current.is_current_char = False
         decision.target.is_current_char = True
@@ -169,6 +174,9 @@ class TestChizAbyssTeam(unittest.TestCase):
     def _perform_and_switch(self, current):
         current.is_current_char = True
         self.planner.perform_current_char(current)
+        return self._switch_only(current)
+
+    def _switch_only(self, current):
         decision = self.planner.decide_switch(current)
         current.is_current_char = False
         decision.target.is_current_char = True
@@ -212,7 +220,7 @@ class TestChizAbyssTeam(unittest.TestCase):
         self.assertIs(decision.target, self.zero)
 
     def test_opener_deadline_unlocks_route(self):
-        self.chiz.ABYSS_OPENER_TIMEOUT = 0
+        self.chiz.ABYSS_ROUTE_TIMEOUT = 0
 
         self.planner.context_for(self.jiuyuan)
         self.planner.context_for(self.jiuyuan)
@@ -267,6 +275,42 @@ class TestChizAbyssTeam(unittest.TestCase):
         self.assertNotIn(("Yi", "Q"), self.trace)
         self.assertNotIn(("Zero", "Q"), self.trace)
 
+    def test_completed_burst_publishes_and_executes_next_yingxu_cycle(self):
+        current = self._perform_and_switch(self.jiuyuan)
+        current = self._perform_and_switch(current)
+        current = self._perform_and_switch(current)
+        self.zero._test_skill_ready = True
+        current = self._perform_and_switch(current)
+        current = self._perform_and_switch(current)
+        self.assertIs(current, self.chiz)
+
+        self.planner.perform_current_char(current)
+        self.assertEqual(self.planner.state.locked_route.reason, "Chiz Yingxu abyss cycle")
+
+        self.zero._test_skill_ready = True
+        current = self._switch_only(current)
+        self.assertIs(current, self.zero)
+
+        current = self._perform_and_switch(current)
+        self.assertIs(current, self.jiuyuan)
+
+        current = self._perform_and_switch(current)
+        self.assertIs(current, self.zero)
+        self.zero._test_skill_ready = True
+
+        current = self._perform_and_switch(current)
+        self.assertIs(current, self.yi)
+        self.yi._test_ultimate_ready = True
+        self.yi._test_skill_ready = True
+
+        current = self._perform_and_switch(current)
+        self.assertIs(current, self.chiz)
+        self.chiz._test_ultimate_ready = True
+        self.planner.perform_current_char(current)
+
+        self.assertEqual(self.trace.count(("Chiz", "BURST")), 2)
+        self.assertEqual(self.planner.state.locked_route.reason, "Chiz Yingxu abyss cycle")
+
 
 class TestChizBurstSafety(unittest.TestCase):
     def test_burst_uses_skill_at_most_once_and_stops_when_switched_out(self):
@@ -296,10 +340,11 @@ class TestChizBurstSafety(unittest.TestCase):
                 char.is_current_char = False
 
         char.click_with_interval = attack_once
-        char.perform_in_ult()
+        completed = char.perform_in_ult()
 
         self.assertEqual(trace, ["E"])
         self.assertEqual(attacks[0], 3)
+        self.assertFalse(completed)
 
 
 if __name__ == "__main__":

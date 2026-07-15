@@ -87,6 +87,8 @@ def make_testable(char_cls, index, **kwargs):
         char._fake_time += 0.3
 
     def mock_click(*args, **kwargs):
+        if kwargs.get("key") == "right":
+            char.fallback_calls += 1
         interval = kwargs.get("interval", -1)
         if interval > 0:
             char._fake_time += interval

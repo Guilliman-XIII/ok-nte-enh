@@ -2059,6 +2059,36 @@ class TestCombatPlanner(unittest.TestCase):
 
         self.assertEqual(calls, ["request", "second"])
 
+    def test_entry_flow_consumes_request_published_immediately_before_return(self):
+        target = FakeChar(1, "target")
+
+        def plan_factory(char, context):
+            action = char.planner_action(
+                tags={ActionTag.DEFAULT_ACTION},
+                execute=lambda _: True,
+                reason="finish action before request",
+            )
+
+            def entry():
+                result = yield action
+                if result:
+                    context.request_switch(target, reason="published before generator return")
+
+            return char.plan(action, entry=entry)
+
+        source = PublicApiChar(FakeTask(), 0, "source", plan_factory)
+        source.is_cycle_full = lambda: False
+        task = source.task
+        task.chars = [source, target]
+        planner = CombatPlanner(task)
+        planner.reset(task.chars)
+
+        planner.perform_current_char(source)
+        decision = planner.decide_switch(source)
+
+        self.assertEqual(decision.target, target)
+        self.assertIn("switch request", decision.reason)
+
     def test_request_switch_waits_when_strict_route_preempts_it(self):
         source = FakeChar(0, "source")
         zero = FakeChar(1, "zero")

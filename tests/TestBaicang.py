@@ -402,9 +402,24 @@ class TestBaicangFallbackDodge(unittest.TestCase):
         result = self.char._execute_fallback_dodge()
         self.assertTrue(result)
 
-    def test_fallback_calls_continues_right_click(self):
+    def test_fallback_uses_checkpointed_right_click(self):
         self.char._execute_fallback_dodge()
-        self.assertGreater(self.char.fallback_calls, 0)
+        self.assertGreater(self.char.task.click.call_count, 0)
+
+    def test_checkpointed_dodge_yields_to_sound_checks(self):
+        sleep_calls = []
+        original_sleep = self.char.sleep
+
+        def recording_sleep(duration, sleep_check=True):
+            sleep_calls.append((duration, sleep_check))
+            original_sleep(duration, sleep_check)
+
+        self.char.sleep = recording_sleep
+
+        self.char._checkpointed_dodge(0.4)
+
+        self.assertGreaterEqual(len(sleep_calls), 2)
+        self.assertTrue(all(sleep_check for _, sleep_check in sleep_calls))
 
     def test_fallback_returns_false_when_dead(self):
         self.char.is_dead = True

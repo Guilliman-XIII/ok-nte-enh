@@ -13,7 +13,7 @@ from src.combat.planner import (
 
 
 class Chiz(BaseChar):
-    ABYSS_OPENER_TIMEOUT = 35.0
+    ABYSS_ROUTE_TIMEOUT = 35.0
     ULT_FIELD_DURATION = 8.0
     SKILL_SHORT_TIMEOUT = 2.0
 
@@ -33,6 +33,9 @@ class Chiz(BaseChar):
         )
 
     def combat_policies(self, context: CombatContext) -> None:
+        self._request_yingxu_route(context, opener=True)
+
+    def _request_yingxu_route(self, context: CombatContext, opener: bool) -> None:
         if not self.is_abyss_team(self.task.chars):
             return
 
@@ -51,15 +54,19 @@ class Chiz(BaseChar):
             if route_started_at is None:
                 route_started_at = now
                 return False
-            return now - route_started_at >= self.ABYSS_OPENER_TIMEOUT
+            return now - route_started_at >= self.ABYSS_ROUTE_TIMEOUT
 
-        context.request_route(
-            [
+        steps = []
+        if opener:
+            steps.append(
                 FollowupStep.for_action(
                     jiuyuan,
                     ActionSlot.SKILL,
                     reason="Jiuyuan groups enemies for Yingxu opener",
-                ),
+                )
+            )
+        steps.extend(
+            [
                 FollowupStep.for_action(
                     zero,
                     ActionSlot.ULTIMATE,
@@ -112,8 +119,12 @@ class Chiz(BaseChar):
                     ActionSlot.ULTIMATE,
                     reason="Chiz spends Yingxu energy in the damage window",
                 ),
-            ],
-            reason="Chiz Yingxu abyss opener",
+            ]
+        )
+        route_name = "opener" if opener else "cycle"
+        context.request_route(
+            steps,
+            reason=f"Chiz Yingxu abyss {route_name}",
             until=route_expired,
         )
 
@@ -130,13 +141,14 @@ class Chiz(BaseChar):
         def entry():
             ultimate_result = yield ultimate
             if ultimate_result:
-                self.perform_in_ult(context)
+                if self.perform_in_ult(context):
+                    self._request_yingxu_route(context, opener=False)
                 return
             yield skill
 
         return self.plan(ultimate, skill, entry=entry)
 
-    def perform_in_ult(self, context: CombatContext = None):
+    def perform_in_ult(self, context: CombatContext = None) -> bool:
         box = self.task.box_of_screen(0.487, 0.775, 0.514, 0.798, name="percentage")
         self.task.wait_ocr(
             box=box,
@@ -148,7 +160,7 @@ class Chiz(BaseChar):
         skill_attempted = False
         while self._now() < deadline:
             if not self.is_current_char or self.is_dead:
-                return
+                return False
             self.check_combat()
             red_pct = self.task.calculate_color_percentage(red_pct_color, box)
             yellow_pct = self.task.calculate_color_percentage(yellow_pct_color, box)
@@ -162,6 +174,7 @@ class Chiz(BaseChar):
                 self.click_skill(time_out=self.SKILL_SHORT_TIMEOUT)
             self.click_with_interval()
             self.sleep(0.1)
+        return self.is_current_char and not self.is_dead
 
     def _now(self):
         return time.monotonic()

@@ -103,6 +103,8 @@ class PlannerTestableBaicang:
             char._fake_time += 0.1
 
         def mock_click(*args, **kwargs):
+            if kwargs.get("key") == "right":
+                char._fallback_calls += 1
             interval = kwargs.get("interval", -1)
             if interval > 0:
                 char._fake_time += interval

@@ -528,10 +528,11 @@ class CombatPlanner:
         context: CombatContext,
         result: ActionResult | None = None,
     ) -> ActionIntent | None:
+        action = None
         try:
             action = next(entry_flow) if result is None else entry_flow.send(result)
         except StopIteration:
-            return None
+            pass
         published_requests = context._consume_published_requests()
         self._ensure_followup_sources(context.current_char, published_requests)
         self.state.add_requests(published_requests)
