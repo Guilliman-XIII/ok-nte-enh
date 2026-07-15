@@ -13,9 +13,12 @@ class Jiuyuan(BaseChar):
         super().__init__(*args, **kwargs)
 
     def describe_role(self):
+        from src.char.Chiz import Chiz
+
         return RoleProfile(
             role=Role.SUB_DPS,
             field_preference=FieldPreference.SUB_DPS,
+            combat_start_priority=100 if Chiz.is_abyss_team(self.task.chars) else 0,
             max_field_time=1.0,
         )
 

@@ -8,9 +8,12 @@ class Sakiri(BaseChar):
         super().__init__(*args, **kwargs)
 
     def describe_role(self):
+        from src.char.Baicang import Baicang
+
         return RoleProfile(
             role=Role.SUB_DPS,
             field_preference=FieldPreference.SUB_DPS,
+            combat_start_priority=100 if Baicang.is_abyss_team(self.task.chars) else 0,
             max_field_time=1.0,
         )
 

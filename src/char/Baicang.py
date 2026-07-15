@@ -6,6 +6,7 @@ from src.combat.planner import (
     ActionTag,
     CombatContext,
     FieldPreference,
+    FollowupStep,
     Role,
     RoleProfile,
 )
@@ -33,6 +34,68 @@ class Baicang(BaseChar):
     SKILL_SHORT_TIMEOUT = 2.0
     DEFAULT_DIRECTION_KEY = None  # 第一轮实机不按方向键，先验证右键本身有效
     POST_SKILL_DODGE_DURATION = 1.0  # E 成功但 Q 失败时的短右键输出
+    ABYSS_OPENER_TIMEOUT = 20.0
+
+    @staticmethod
+    def is_abyss_team(chars):
+        """仅识别用户固定的哈妮娅竞速队，不影响白藏的其他配队。"""
+        from src.char.Daphneel import Daphneel
+        from src.char.Hania import Hania
+        from src.char.Sakiri import Sakiri
+
+        required = (Baicang, Daphneel, Hania, Sakiri)
+        return len(chars) == 4 and all(
+            sum(isinstance(char, char_cls) for char in chars) == 1 for char_cls in required
+        )
+
+    def combat_policies(self, context: CombatContext) -> None:
+        if not self.is_abyss_team(self.task.chars):
+            return
+
+        from src.char.Daphneel import Daphneel
+        from src.char.Hania import Hania
+        from src.char.Sakiri import Sakiri
+
+        sakiri = next(char for char in self.task.chars if isinstance(char, Sakiri))
+        hania = next(char for char in self.task.chars if isinstance(char, Hania))
+        daphneel = next(char for char in self.task.chars if isinstance(char, Daphneel))
+        route_started_at = None
+
+        def route_expired():
+            nonlocal route_started_at
+            now = time.monotonic()
+            if route_started_at is None:
+                route_started_at = now
+                return False
+            return now - route_started_at >= self.ABYSS_OPENER_TIMEOUT
+
+        context.request_route(
+            [
+                FollowupStep.for_action(
+                    sakiri,
+                    ActionSlot.SKILL,
+                    reason="Sakiri groups enemies for Baicang opener",
+                ),
+                FollowupStep.for_action(
+                    hania,
+                    ActionSlot.ULTIMATE,
+                    reason="Hania opens enhanced damage window",
+                    optional=True,
+                ),
+                FollowupStep.for_action(
+                    hania,
+                    ActionSlot.SKILL,
+                    reason="Hania deploys off-field damage",
+                ),
+                FollowupStep.for_action(
+                    daphneel,
+                    ActionSlot.SKILL,
+                    reason="Daphneel primes dark burst before Baicang",
+                ),
+            ],
+            reason="Baicang abyss opener",
+            until=route_expired,
+        )
 
     def describe_role(self):
         return RoleProfile(
