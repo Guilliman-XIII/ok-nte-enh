@@ -6,6 +6,7 @@ from src.char.Baicang import Baicang
 from src.char.BaseChar import Element
 from src.char.CharFactory import char_dict
 from src.char.Chiz import Chiz
+from src.char.custom.CustomCharManager import CustomCharManager
 from src.char.Daphneel import Daphneel
 from src.char.Hania import Hania
 from src.char.Jiuyuan import Jiuyuan
@@ -204,6 +205,11 @@ class TestChizAbyssTeam(unittest.TestCase):
         self.assertEqual(char_dict["char_yi"]["cn_name"], "翳")
         self.assertEqual(char_dict["char_yi"]["element"], Element.YELLOW)
         self.assertEqual(self.yi.describe_role().max_field_time, 0)
+
+    def test_yi_is_exposed_in_character_center_builtin_combos(self):
+        combo_ids = {combo_id for _, combo_id in CustomCharManager.iter_builtin_combo_items()}
+
+        self.assertIn("char_yi", combo_ids)
 
     def test_complete_team_starts_with_jiuyuan(self):
         decision = self.planner.decide_combat_start_char(self.chiz)

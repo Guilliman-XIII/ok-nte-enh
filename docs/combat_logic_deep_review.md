@@ -557,7 +557,7 @@ P4：
 - 小吱大招循环的墙上时钟、缺少中断检查和重复 E 风险已修正。
 - 小吱完整爆发后会持续重建双环合轴；白藏右键长动作已加入声音闪避/反击检查点。
 - Planner 已修复 entry generator 在收尾发布协作请求后立即返回时静默丢失请求的问题。
-- 当前聚焦验证为 `214 passed, 3 subtests passed`，并通过目标文件 ruff、py_compile 和 diff 检查。
+- 当前聚焦验证为 `215 passed, 3 subtests passed`，并通过目标文件 ruff、py_compile 和 diff 检查。
 
 当前 Go/No-Go：**代码级 Go，深渊交付级 No-Go**。在用户完成至少一轮两队实机开轴验证前，不能
 声称已经可靠触发失谐/盈蓄，也不能声称能拿满本期深渊奖励。联调入口见
