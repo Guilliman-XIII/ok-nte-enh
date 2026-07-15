@@ -24,9 +24,9 @@ Sakiri_skill
 Hania_ultimate                 # 无能量时允许跳过
 Hania_skill
 Daphneel_skill
-Daphneel_ultimate
+Daphneel_ultimate              # 无能量时允许跳过
 strict route fulfilled: Baicang abyss opener
-planner switch ... -> Baicang
+switch request: return Baicang after Daphneel burst
 ```
 
 验收观察：
@@ -35,6 +35,8 @@ planner switch ... -> Baicang
 - 达芙蒂尔 E 后若 Q 可用，应进入有界爆发，再回白藏。
 - 白藏 Q 后保持右键输出；声音闪避/反击仍能工作。
 - 哈妮娅 Q 不可用时路线继续，不在哈妮娅处等待。
+- 任一辅助 E/Q 点击失败时应出现 optional step skip，并继续回白藏，不能重复空放到超时。
+- 后续普通短切结束后，即使白藏 E/Q 仍在冷却，也应看到 `return Baicang after ...`。
 - 20 秒后仍未完成时应出现 route deadline 日志并恢复普通 Planner。
 
 ## 3. 第二队：小吱盈蓄队

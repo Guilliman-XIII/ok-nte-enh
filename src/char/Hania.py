@@ -49,8 +49,18 @@ class Hania(BaseChar):
             if skill_result:
                 self.logger.info(f"{_LOG_PREFIX} 咕咕子 deployed")
                 self.sleep(0.5)
+            self._request_baicang_return(context)
 
         return self.plan(ultimate, skill, entry=entry)
+
+    def _request_baicang_return(self, context: CombatContext = None) -> None:
+        from src.char.Baicang import Baicang
+
+        Baicang.request_abyss_return(
+            context,
+            self.task.chars,
+            reason="return Baicang after Hania setup",
+        )
 
     def on_combat_end(self, chars):
         """战后清理。不用于战斗内切人。"""

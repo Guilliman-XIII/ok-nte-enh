@@ -244,11 +244,11 @@ class TestDaphneelRole(unittest.TestCase):
     def setUp(self):
         self.char = TestableDaphneel()
 
-    def test_role_is_main_dps(self):
-        self.assertEqual(self.char.describe_role().role, Role.MAIN_DPS)
+    def test_role_is_sub_dps(self):
+        self.assertEqual(self.char.describe_role().role, Role.SUB_DPS)
 
-    def test_field_preference_is_main_dps(self):
-        self.assertEqual(self.char.describe_role().field_preference, FieldPreference.MAIN_DPS)
+    def test_field_preference_is_setup_only(self):
+        self.assertEqual(self.char.describe_role().field_preference, FieldPreference.SETUP_ONLY)
 
     def test_max_field_time_is_zero(self):
         """GPT5.6 MAJOR 3: max_field_time=0 禁止通用平A fallback。"""

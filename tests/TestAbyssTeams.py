@@ -138,6 +138,38 @@ class TestBaicangAbyssTeam(unittest.TestCase):
         self.assertNotIn(("Hania", "Q"), self.trace)
         self.assertIn(("Hania", "E"), self.trace)
 
+    def test_failed_support_actions_still_return_to_baicang(self):
+        for char in (self.sakiri, self.hania, self.daphneel):
+            char._test_skill_ready = False
+            char._test_ultimate_ready = False
+
+        current = self._perform_and_switch(self.sakiri)
+        current = self._perform_and_switch(current)
+        current = self._perform_and_switch(current)
+
+        self.assertIs(current, self.baicang)
+        self.assertIsNone(self.planner.state.locked_route)
+
+    def test_hania_returns_to_baicang_while_baicang_skills_are_on_cooldown(self):
+        current = self._perform_and_switch(self.sakiri)
+        current = self._perform_and_switch(current)
+        current = self._perform_and_switch(current)
+        self.assertIs(current, self.baicang)
+
+        self.baicang._test_skill_ready = False
+        self.baicang._test_ultimate_ready = False
+        self.sakiri._test_ultimate_ready = False
+        self.daphneel._test_skill_ready = False
+        self.daphneel._test_ultimate_ready = False
+        self.hania._test_skill_ready = True
+        self.hania._test_ultimate_ready = True
+
+        current = self._switch_only(current)
+        self.assertIs(current, self.hania)
+        current = self._perform_and_switch(current)
+
+        self.assertIs(current, self.baicang)
+
     def test_other_sakiri_team_keeps_default_start_priority(self):
         self.task.chars = [self.sakiri, self.hania]
         planner = CombatPlanner(self.task)

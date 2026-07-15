@@ -1,6 +1,6 @@
 
 from src.char.BaseChar import BaseChar
-from src.combat.planner import FieldPreference, Role, RoleProfile
+from src.combat.planner import CombatContext, FieldPreference, Role, RoleProfile
 
 
 class Sakiri(BaseChar):
@@ -18,7 +18,21 @@ class Sakiri(BaseChar):
         )
 
     def combat_plan(self, context):
-        return self.plan(
-            self.click_ultimate_action(),
-            self.click_skill_action(down_time=0.25),
+        ultimate = self.click_ultimate_action()
+        skill = self.click_skill_action(down_time=0.25)
+
+        def entry():
+            yield ultimate
+            yield skill
+            self._request_baicang_return(context)
+
+        return self.plan(ultimate, skill, entry=entry)
+
+    def _request_baicang_return(self, context: CombatContext = None) -> None:
+        from src.char.Baicang import Baicang
+
+        Baicang.request_abyss_return(
+            context,
+            self.task.chars,
+            reason="return Baicang after Sakiri setup",
         )

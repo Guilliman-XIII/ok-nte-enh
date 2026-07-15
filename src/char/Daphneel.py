@@ -28,8 +28,8 @@ class Daphneel(BaseChar):
 
     def describe_role(self):
         return RoleProfile(
-            role=Role.MAIN_DPS,
-            field_preference=FieldPreference.MAIN_DPS,
+            role=Role.SUB_DPS,
+            field_preference=FieldPreference.SETUP_ONLY,
             max_field_time=self.MAX_FIELD_TIME,
         )
 
@@ -49,10 +49,21 @@ class Daphneel(BaseChar):
             if ultimate_result:
                 self.logger.info(f"{_LOG_PREFIX} burst executed")
                 self._perform_burst(context)
+                self._request_baicang_return(context)
                 return
             yield skill
+            self._request_baicang_return(context)
 
         return self.plan(ultimate, skill, entry=entry)
+
+    def _request_baicang_return(self, context: CombatContext = None) -> None:
+        from src.char.Baicang import Baicang
+
+        Baicang.request_abyss_return(
+            context,
+            self.task.chars,
+            reason="return Baicang after Daphneel burst",
+        )
 
     def _perform_burst(self, context: CombatContext = None):
         """Q 成功后的爆发输出窗口 (参考 Chiz.perform_in_ult)。

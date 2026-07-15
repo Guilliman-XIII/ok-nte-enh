@@ -228,10 +228,10 @@ class TestTeamSimulation(unittest.TestCase):
         self.assertEqual(chars[0].describe_role().field_preference, FieldPreference.SETUP_ONLY)
         self.assertEqual(chars[1].describe_role().field_preference, FieldPreference.SETUP_ONLY)
 
-    def test_dps_are_main_dps(self):
-        """主C角色 field_preference=MAIN_DPS。"""
+    def test_baicang_is_main_dps_and_daphneel_is_setup_only(self):
+        """白藏长期站场，达芙蒂尔只做爆发短切。"""
         planner, chars = self._make_team()
-        self.assertEqual(chars[2].describe_role().field_preference, FieldPreference.MAIN_DPS)
+        self.assertEqual(chars[2].describe_role().field_preference, FieldPreference.SETUP_ONLY)
         self.assertEqual(chars[3].describe_role().field_preference, FieldPreference.MAIN_DPS)
 
     # ---- 动作 slot 验证 ----

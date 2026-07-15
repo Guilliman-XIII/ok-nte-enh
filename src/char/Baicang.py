@@ -48,6 +48,14 @@ class Baicang(BaseChar):
             sum(isinstance(char, char_cls) for char in chars) == 1 for char_cls in required
         )
 
+    @classmethod
+    def request_abyss_return(cls, context: CombatContext, chars, reason: str) -> None:
+        """目标队辅助完成动作后显式请求白藏回场，即使白藏 E/Q 正在冷却。"""
+        if context is None or not cls.is_abyss_team(chars):
+            return
+        baicang = next(char for char in chars if isinstance(char, cls))
+        context.request_switch(baicang, reason=reason)
+
     def combat_policies(self, context: CombatContext) -> None:
         if not self.is_abyss_team(self.task.chars):
             return
@@ -75,6 +83,7 @@ class Baicang(BaseChar):
                     sakiri,
                     ActionSlot.SKILL,
                     reason="Sakiri groups enemies for Baicang opener",
+                    optional=True,
                 ),
                 FollowupStep.for_action(
                     hania,
@@ -86,11 +95,19 @@ class Baicang(BaseChar):
                     hania,
                     ActionSlot.SKILL,
                     reason="Hania deploys off-field damage",
+                    optional=True,
                 ),
                 FollowupStep.for_action(
                     daphneel,
                     ActionSlot.SKILL,
                     reason="Daphneel primes dark burst before Baicang",
+                    optional=True,
+                ),
+                FollowupStep.for_action(
+                    daphneel,
+                    ActionSlot.ULTIMATE,
+                    reason="Daphneel spends dark burst before Baicang",
+                    optional=True,
                 ),
             ],
             reason="Baicang abyss opener",
