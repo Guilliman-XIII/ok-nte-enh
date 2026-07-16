@@ -1,6 +1,11 @@
-
 from src.char.BaseChar import BaseChar
-from src.combat.planner import CombatContext, FieldPreference, Role, RoleProfile
+from src.combat.planner import (
+    ActionSlot,
+    CombatContext,
+    FieldPreference,
+    Role,
+    RoleProfile,
+)
 
 
 class Sakiri(BaseChar):
@@ -10,16 +15,30 @@ class Sakiri(BaseChar):
     def describe_role(self):
         from src.char.Baicang import Baicang
 
+        is_baicang_abyss_team = Baicang.is_abyss_team(self.task.chars)
         return RoleProfile(
             role=Role.SUB_DPS,
-            field_preference=FieldPreference.SUB_DPS,
-            combat_start_priority=100 if Baicang.is_abyss_team(self.task.chars) else 0,
-            max_field_time=1.0,
+            field_preference=(
+                FieldPreference.SETUP_ONLY if is_baicang_abyss_team else FieldPreference.SUB_DPS
+            ),
+            combat_start_priority=100 if is_baicang_abyss_team else 0,
+            max_field_time=0 if is_baicang_abyss_team else 1.0,
         )
 
     def combat_plan(self, context):
-        ultimate = self.click_ultimate_action()
-        skill = self.click_skill_action(down_time=0.25)
+        from src.char.Baicang import Baicang
+
+        is_baicang_abyss_team = Baicang.is_abyss_team(self.task.chars)
+        ultimate = self.click_ultimate_action(
+            can_execute=lambda _: not is_baicang_abyss_team,
+        )
+        skill = self.click_skill_action(
+            down_time=0.25,
+            can_execute=lambda ctx: (
+                not is_baicang_abyss_team
+                or ctx.strict_route_wants_action(self, slot=ActionSlot.SKILL)
+            ),
+        )
 
         def entry():
             yield ultimate

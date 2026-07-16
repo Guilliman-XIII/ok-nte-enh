@@ -13,7 +13,7 @@ from src.char.Jiuyuan import Jiuyuan
 from src.char.Sakiri import Sakiri
 from src.char.Yi import Yi
 from src.char.Zero import Zero
-from src.combat.planner import CombatPlanner
+from src.combat.planner import ActionSlot, CombatPlanner, FieldPreference
 
 
 class FakeTask:
@@ -71,9 +71,7 @@ def make_team_char(task, char_cls, index, trace):
     if isinstance(char, (Baicang, Daphneel)):
         char._perform_burst = lambda *args, **kwargs: trace.append((char.name, "BURST"))
     if isinstance(char, Chiz):
-        char.perform_in_ult = lambda *args, **kwargs: (
-            trace.append((char.name, "BURST")) or True
-        )
+        char.perform_in_ult = lambda *args, **kwargs: trace.append((char.name, "BURST")) or True
     return char
 
 
@@ -105,6 +103,33 @@ class TestBaicangAbyssTeam(unittest.TestCase):
         decision = self.planner.decide_combat_start_char(self.baicang)
 
         self.assertIs(decision.target, self.sakiri)
+
+    def test_sakiri_is_opener_only_in_baicang_abyss_team(self):
+        profile = self.sakiri.describe_role()
+
+        self.assertEqual(profile.field_preference, FieldPreference.SETUP_ONLY)
+        self.assertEqual(profile.max_field_time, 0)
+
+    def test_sakiri_actions_are_hidden_after_opener(self):
+        current = self.sakiri
+        current = self._perform_and_switch(current)
+        current = self._perform_and_switch(current)
+        current = self._perform_and_switch(current)
+        self.assertIs(current, self.baicang)
+
+        context = self.planner.context_for(self.sakiri)
+        actions = self.sakiri.combat_plan(context).actions
+
+        self.assertFalse(
+            next(action for action in actions if action.slot == ActionSlot.SKILL).can_execute(
+                context
+            )
+        )
+        self.assertFalse(
+            next(action for action in actions if action.slot == ActionSlot.ULTIMATE).can_execute(
+                context
+            )
+        )
 
     def test_opener_routes_to_baicang_through_supports(self):
         current = self.sakiri
