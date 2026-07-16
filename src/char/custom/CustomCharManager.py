@@ -1,6 +1,8 @@
 import os
+import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from threading import Lock, RLock, Thread
 from typing import TYPE_CHECKING
 
@@ -20,6 +22,7 @@ CUSTOM_CHARS_DIR = "custom_chars"
 FEATURES_DIR = os.path.join(CUSTOM_CHARS_DIR, "features")
 DB_PATH = os.path.join(CUSTOM_CHARS_DIR, "db.json")
 DB_SCHEMA_VERSION = CustomCharDb.DB_SCHEMA_VERSION
+TEAM_PRESET_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
 
 class CustomCharManager:
@@ -158,9 +161,9 @@ class CustomCharManager:
                 self._invalidate_feature_cache()
                 self.save_db()
 
-    def save_db(self):
+    def save_db(self) -> bool:
         with self._data_lock:
-            CustomCharDb.save_db(DB_PATH, self.db, logger)
+            return CustomCharDb.save_db(DB_PATH, self.db, logger)
 
     def _invalidate_feature_cache(self):
         self._feature_cache.clear()
@@ -215,7 +218,19 @@ class CustomCharManager:
 
     def migrate_db_schema(self):
         with self._data_lock:
-            self.db, modified = CustomCharDb.migrate_db_schema(
+            previous_db = deepcopy(self.db)
+            source_schema_version = self.db.get("schema_version", 0)
+            try:
+                source_schema_version = int(source_schema_version)
+            except (TypeError, ValueError):
+                source_schema_version = 0
+            if source_schema_version > DB_SCHEMA_VERSION:
+                raise RuntimeError(
+                    f"Custom character data schema v{source_schema_version} is newer than "
+                    f"supported v{DB_SCHEMA_VERSION}"
+                )
+
+            migrated_db, modified = CustomCharDb.migrate_db_schema(
                 self.db,
                 self.is_builtin_combo,
                 self.get_builtin_prefix,
@@ -223,7 +238,14 @@ class CustomCharManager:
                 self._generate_combo_id,
             )
             if modified:
-                self.save_db()
+                if not CustomCharDb.backup_db_before_migration(
+                    DB_PATH, source_schema_version, logger
+                ):
+                    raise RuntimeError("Unable to back up custom character data before migration")
+                self.db = migrated_db
+                if not self.save_db():
+                    self.db = previous_db
+                    raise RuntimeError("Unable to save migrated custom character data")
 
     def find_custom_combo_id_by_name(self, combo_name: str) -> str:
         combo_name = self._as_text(combo_name)
@@ -273,14 +295,7 @@ class CustomCharManager:
             if combo_id in self.db["combos"]:
                 del self.db["combos"][combo_id]
                 deleted = True
-            fixed_team = self._normalize_fixed_team_config(self.db.get("fixed_team"))
-            fixed_team_changed = False
-            for slot in fixed_team["slots"]:
-                if slot["combo_id"] == combo_id:
-                    slot["combo_id"] = ""
-                    fixed_team_changed = True
-            if fixed_team_changed:
-                self.db["fixed_team"] = fixed_team
+            fixed_team_changed = self._clean_fixed_team_references(combo_id=combo_id)
             if deleted or fixed_team_changed:
                 self.save_db()
 
@@ -395,15 +410,7 @@ class CustomCharManager:
             for fid in feature_ids:
                 self.delete_feature_image(fid)
             del self.db["characters"][char_id]
-            fixed_team = self._normalize_fixed_team_config(self.db.get("fixed_team"))
-            fixed_team_changed = False
-            for slot in fixed_team["slots"]:
-                if slot.get("char_id") == char_id:
-                    slot["char_id"] = ""
-                    slot["combo_id"] = ""
-                    fixed_team_changed = True
-            if fixed_team_changed:
-                self.db["fixed_team"] = fixed_team
+            self._clean_fixed_team_references(char_id=char_id)
             self._invalidate_feature_cache()
             self.save_db()
 
@@ -666,28 +673,189 @@ class CustomCharManager:
                 return out
             return None
 
+    def _commit_fixed_team(self, fixed_team) -> bool:
+        previous = deepcopy(self.db.get("fixed_team", self._default_fixed_team()))
+        self.db["fixed_team"] = self._normalize_fixed_team_config(fixed_team)
+        if self.save_db():
+            return True
+        self.db["fixed_team"] = previous
+        return False
+
+    def _clean_fixed_team_references(self, *, char_id="", combo_id="") -> bool:
+        fixed_team = self._normalize_fixed_team_config(self.db.get("fixed_team"))
+        changed = False
+
+        slot_groups = [fixed_team["slots"]]
+        slot_groups.extend(preset["slots"] for preset in fixed_team["presets"].values())
+        for slots in slot_groups:
+            for slot in slots:
+                if char_id and slot["char_id"] == char_id:
+                    slot["char_id"] = ""
+                    slot["combo_id"] = ""
+                    changed = True
+                elif combo_id and slot["combo_id"] == combo_id:
+                    slot["combo_id"] = ""
+                    changed = True
+
+        active_id = fixed_team["active_preset_id"]
+        if active_id:
+            active_slots = fixed_team["presets"][active_id]["slots"]
+            fixed_team["slots"] = deepcopy(active_slots)
+            if not CustomCharDb.is_complete_team_slots(active_slots):
+                fixed_team["enabled"] = False
+                fixed_team["armed_for_next_battle"] = ""
+
+        if changed:
+            self.db["fixed_team"] = self._normalize_fixed_team_config(fixed_team)
+        return changed
+
     def get_fixed_team(self):
         with self._data_lock:
             fixed_team = self._normalize_fixed_team_config(self.db.get("fixed_team"))
-            return {
-                "enabled": fixed_team["enabled"],
-                "slots": [dict(slot) for slot in fixed_team["slots"]],
-            }
+            return deepcopy(fixed_team)
 
-    def set_fixed_team(self, enabled: bool, slots):
+    def set_fixed_team(self, enabled: bool, slots) -> bool:
         with self._data_lock:
-            self.db["fixed_team"] = self._normalize_fixed_team_config(
+            fixed_team = self._normalize_fixed_team_config(self.db.get("fixed_team"))
+            fixed_team.update(
                 {
                     "enabled": enabled,
+                    "selection_mode": "manual",
+                    "active_preset_id": "",
+                    "armed_for_next_battle": "",
                     "slots": slots,
                 }
             )
-            self.save_db()
+            return self._commit_fixed_team(fixed_team)
 
-    def clear_fixed_team(self):
+    def clear_fixed_team(self) -> bool:
         with self._data_lock:
-            self.db["fixed_team"] = self._default_fixed_team()
-            self.save_db()
+            fixed_team = self._normalize_fixed_team_config(self.db.get("fixed_team"))
+            fixed_team.update(
+                {
+                    "enabled": False,
+                    "selection_mode": "manual",
+                    "active_preset_id": "",
+                    "armed_for_next_battle": "",
+                    "slots": CustomCharDb.normalize_team_slots([]),
+                }
+            )
+            return self._commit_fixed_team(fixed_team)
+
+    def get_team_presets(self) -> dict:
+        with self._data_lock:
+            return deepcopy(self._normalize_fixed_team_config(self.db.get("fixed_team"))["presets"])
+
+    def get_team_preset(self, preset_id: str) -> dict | None:
+        preset_id = self._as_text(preset_id).strip()
+        with self._data_lock:
+            preset = self._normalize_fixed_team_config(self.db.get("fixed_team"))["presets"].get(
+                preset_id
+            )
+            if not preset:
+                return None
+            return {"preset_id": preset_id, **deepcopy(preset)}
+
+    def set_team_preset(
+        self,
+        preset_id: str,
+        name: str,
+        slots,
+        *,
+        activate: bool = True,
+    ) -> bool:
+        preset_id = self._as_text(preset_id).strip()
+        name = self._as_text(name).strip()
+        normalized_slots = CustomCharDb.normalize_team_slots(slots)
+        if (
+            not TEAM_PRESET_ID_PATTERN.fullmatch(preset_id)
+            or not name
+            or not CustomCharDb.is_complete_team_slots(normalized_slots)
+        ):
+            return False
+
+        with self._data_lock:
+            fixed_team = self._normalize_fixed_team_config(self.db.get("fixed_team"))
+            fixed_team["presets"][preset_id] = {
+                "name": name,
+                "slots": normalized_slots,
+            }
+            if activate:
+                fixed_team["active_preset_id"] = preset_id
+                fixed_team["slots"] = deepcopy(normalized_slots)
+                fixed_team["enabled"] = False
+                fixed_team["armed_for_next_battle"] = ""
+            return self._commit_fixed_team(fixed_team)
+
+    def delete_team_preset(self, preset_id: str) -> bool:
+        preset_id = self._as_text(preset_id).strip()
+        with self._data_lock:
+            fixed_team = self._normalize_fixed_team_config(self.db.get("fixed_team"))
+            if preset_id not in fixed_team["presets"]:
+                return False
+            del fixed_team["presets"][preset_id]
+            if fixed_team["active_preset_id"] == preset_id:
+                fixed_team["active_preset_id"] = ""
+                fixed_team["slots"] = CustomCharDb.normalize_team_slots([])
+                fixed_team["enabled"] = False
+            if fixed_team["armed_for_next_battle"] == preset_id:
+                fixed_team["armed_for_next_battle"] = ""
+                fixed_team["enabled"] = False
+            return self._commit_fixed_team(fixed_team)
+
+    def arm_team_preset(self, preset_id: str) -> bool:
+        preset_id = self._as_text(preset_id).strip()
+        with self._data_lock:
+            fixed_team = self._normalize_fixed_team_config(self.db.get("fixed_team"))
+            preset = fixed_team["presets"].get(preset_id)
+            if not preset or not CustomCharDb.is_complete_team_slots(preset["slots"]):
+                return False
+            fixed_team["selection_mode"] = "manual"
+            fixed_team["active_preset_id"] = preset_id
+            fixed_team["armed_for_next_battle"] = preset_id
+            fixed_team["slots"] = deepcopy(preset["slots"])
+            fixed_team["enabled"] = True
+            return self._commit_fixed_team(fixed_team)
+
+    def get_armed_team_preset(self) -> dict | None:
+        with self._data_lock:
+            fixed_team = self._normalize_fixed_team_config(self.db.get("fixed_team"))
+            preset_id = fixed_team["armed_for_next_battle"]
+            preset = fixed_team["presets"].get(preset_id)
+            if not preset:
+                return None
+            return {"preset_id": preset_id, **deepcopy(preset)}
+
+    def consume_armed_team_preset(self, expected_preset_id: str = "") -> dict | None:
+        with self._data_lock:
+            fixed_team = self._normalize_fixed_team_config(self.db.get("fixed_team"))
+            preset_id = fixed_team["armed_for_next_battle"]
+            if expected_preset_id and preset_id != expected_preset_id:
+                return None
+            preset = fixed_team["presets"].get(preset_id)
+            if not preset:
+                return None
+
+            result = {"preset_id": preset_id, **deepcopy(preset)}
+            fixed_team["armed_for_next_battle"] = ""
+            fixed_team["enabled"] = False
+            if not self._commit_fixed_team(fixed_team):
+                return None
+            return result
+
+    def match_team_preset(self, char_ids) -> str | None:
+        normalized_ids = [self._as_text(char_id).strip() for char_id in char_ids]
+        if len(normalized_ids) != 4 or not all(normalized_ids) or len(set(normalized_ids)) != 4:
+            return None
+        with self._data_lock:
+            fixed_team = self._normalize_fixed_team_config(self.db.get("fixed_team"))
+            matches = []
+            target_set = set(normalized_ids)
+            for preset_id, preset in fixed_team["presets"].items():
+                preset_ids = [slot["char_id"] for slot in preset["slots"]]
+                if len(set(preset_ids)) == 4 and set(preset_ids) == target_set:
+                    matches.append(preset_id)
+            return matches[0] if len(matches) == 1 else None
 
 
 def create_ellipse_mask(w, h, rx, ry):

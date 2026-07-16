@@ -389,6 +389,11 @@ class FixedTeamSlotCard(CardWidget):
 
 
 class TeamManagerTab(CustomTab):
+    ABYSS_PRESET_OPTIONS = (
+        ("team_baicang_speed", "白藏竞速队"),
+        ("team_chiz", "小吱盈蓄队"),
+    )
+
     def __init__(self, manager: CustomCharManager = None, owner=None):
         super().__init__()
         self.owner = owner
@@ -411,6 +416,14 @@ class TeamManagerTab(CustomTab):
         self.tr_update_fixed_team = og.app.tr("更新")
         self.tr_disable_fixed_team = og.app.tr("停用")
         self.tr_clear_fixed_team = og.app.tr("清空")
+        self.tr_preset_placeholder = og.app.tr("选择深渊队伍")
+        self.tr_save_preset = og.app.tr("保存预设")
+        self.tr_arm_preset = og.app.tr("用于下一场")
+        self.tr_preset_incomplete = og.app.tr("预设必须填写四名不同角色")
+        self.tr_preset_save_failed = og.app.tr("队伍预设保存失败，请检查配置文件权限")
+        self.tr_preset_arm_failed = og.app.tr("无法武装该预设，请先完整保存四名角色")
+        self.tr_preset_saved = og.app.tr("队伍预设已保存")
+        self.tr_preset_armed = og.app.tr("下一场已启用严格队伍校验")
         self.tr_fill_failed_title = og.app.tr("没有可用扫描结果")
         self.tr_fill_failed_desc = og.app.tr("先扫描并关联特征或手动填写")
         self.tr_fill_partial_title = og.app.tr("已填入扫描结果")
@@ -431,7 +444,8 @@ class TeamManagerTab(CustomTab):
         self.tr_clear_success_desc = og.app.tr("已清空槽位")
         self.tr_fixed_team_desc = tr_fmt(
             "※ {fixed_team}会优先使用已填写槽位；未填写的槽位仍会自动识别。\n"
-            "如果游戏内切换队伍，已填写槽位需要在软件里手动修改。",
+            "深渊预设需完整保存四人；点击“用于下一场”后会严格核对四个头像，"
+            "不一致时不会启动自动战斗。",
             fixed_team=self.tr_fixed_team_title,
         )
         self.tr_scan_status_active = og.app.tr(
@@ -447,6 +461,12 @@ class TeamManagerTab(CustomTab):
         self.tr_fixed_team_status_empty = tr_fmt(
             '<span style="color: #95a5a6;">○ {fixed_team}：已停用</span>',
             fixed_team=self.tr_fixed_team_title,
+        )
+        self.tr_fixed_team_status_selected = og.app.tr(
+            '<span style="color: #0078d7;">● 当前预设：{name}（尚未用于下一场）</span>'
+        )
+        self.tr_fixed_team_status_armed = og.app.tr(
+            '<span style="color: #2ecc71;">● 下一场：{name}（严格校验）</span>'
         )
         # ruff: disable[E501]
         self.tr_scan_tips = tr_fmt(
@@ -557,6 +577,24 @@ class TeamManagerTab(CustomTab):
 
         self.fixed_team_layout.addLayout(self.fixed_team_header)
 
+        self.team_preset_row = QHBoxLayout()
+        self.team_preset_combo = SearchableComboBox()
+        self.team_preset_combo.setPlaceholderText(self.tr_preset_placeholder)
+        self.team_preset_combo.blockSignals(True)
+        for preset_id, preset_name in self.ABYSS_PRESET_OPTIONS:
+            self.team_preset_combo.addItem(og.app.tr(preset_name), userData=preset_id)
+        self.team_preset_combo.blockSignals(False)
+        self.team_preset_row.addWidget(self.team_preset_combo, 1)
+
+        self.save_preset_btn = PushButton(FluentIcon.SAVE, self.tr_save_preset, self)
+        self.save_preset_btn.clicked.connect(self.on_save_team_preset)
+        self.team_preset_row.addWidget(self.save_preset_btn)
+
+        self.arm_preset_btn = PrimaryPushButton(FluentIcon.PLAY, self.tr_arm_preset, self)
+        self.arm_preset_btn.clicked.connect(self.on_arm_team_preset)
+        self.team_preset_row.addWidget(self.arm_preset_btn)
+        self.fixed_team_layout.addLayout(self.team_preset_row)
+
         self.fixed_team_slots_layout = QHBoxLayout()
         self.fixed_team_slots: list[FixedTeamSlotCard] = []
         for i in range(4):
@@ -565,6 +603,7 @@ class TeamManagerTab(CustomTab):
             self.fixed_team_slots.append(card)
             self.fixed_team_slots_layout.addWidget(card)
         self.fixed_team_layout.addLayout(self.fixed_team_slots_layout)
+        self.team_preset_combo.currentIndexChanged.connect(self.on_team_preset_selected)
 
         self.fixed_team_desc = BodyLabel(self.tr_fixed_team_desc)
         self.fixed_team_desc.setWordWrap(True)
@@ -605,7 +644,7 @@ class TeamManagerTab(CustomTab):
             parent=self.window(),
         )
 
-    def _collect_fixed_team_slots(self, persist=False):
+    def _collect_fixed_team_slots(self, persist=False, update_character_default=True):
         slots = []
         filled_count = 0
         for card in self.fixed_team_slots:
@@ -617,7 +656,7 @@ class TeamManagerTab(CustomTab):
                         combo_id = self.manager.add_combo(combo_name, "")
                     if not char_id and char_name:
                         char_id = self.manager.create_character(char_name, combo_id)
-                    if char_id:
+                    if char_id and update_character_default:
                         self.manager.update_character(char_id, combo_id=combo_id)
             else:
                 combo_id = ""
@@ -634,13 +673,34 @@ class TeamManagerTab(CustomTab):
         for card in self.fixed_team_slots:
             card.reload_options()
 
+    def _selected_team_preset(self):
+        index = self.team_preset_combo.currentIndex()
+        preset_id = self.team_preset_combo.itemData(index) if index >= 0 else ""
+        preset_name = self.team_preset_combo.currentText().strip()
+        return str(preset_id or ""), preset_name
+
     def update_fixed_team_status(self):
         fixed_team = self.manager.get_fixed_team()
         enabled = fixed_team.get("enabled", False)
+        active_id = fixed_team.get("active_preset_id", "")
+        armed_id = fixed_team.get("armed_for_next_battle", "")
+        presets = fixed_team.get("presets", {})
 
         _, filled_count = self._collect_fixed_team_slots()
 
-        if enabled and filled_count:
+        if armed_id and armed_id in presets:
+            name = presets[armed_id].get("name", armed_id)
+            self.fixed_team_status.setText(self.tr_fixed_team_status_armed.format(name=name))
+            self.scan_status.setText(self.tr_scan_status_paused)
+            self.save_fixed_team_btn.setText(self.tr_update_fixed_team)
+            self.disable_fixed_team_btn.setEnabled(True)
+        elif active_id and active_id in presets:
+            name = presets[active_id].get("name", active_id)
+            self.fixed_team_status.setText(self.tr_fixed_team_status_selected.format(name=name))
+            self.scan_status.setText(self.tr_scan_status_active)
+            self.save_fixed_team_btn.setText(self.tr_update_fixed_team)
+            self.disable_fixed_team_btn.setEnabled(False)
+        elif enabled and filled_count:
             status_text = self.tr_fixed_team_status_active.format(count=filled_count)
             self.fixed_team_status.setText(status_text)
             self.scan_status.setText(self.tr_scan_status_paused)
@@ -654,12 +714,53 @@ class TeamManagerTab(CustomTab):
 
     def refresh_fixed_team_state(self):
         fixed_team = self.manager.get_fixed_team()
+        active_id = fixed_team.get("active_preset_id", "")
+        if active_id:
+            preset_index = self.team_preset_combo.findData(active_id)
+            if preset_index >= 0:
+                self.team_preset_combo.blockSignals(True)
+                self.team_preset_combo.setCurrentIndex(preset_index)
+                self.team_preset_combo.blockSignals(False)
         slots = fixed_team.get("slots", [])
         for i, card in enumerate(self.fixed_team_slots):
             slot = slots[i] if i < len(slots) else {}
             char_id = slot.get("char_id", "")
             card.set_data(char_id, slot.get("combo_id", ""))
         self.update_fixed_team_status()
+
+    def on_team_preset_selected(self, _index=None):
+        preset_id, _ = self._selected_team_preset()
+        preset = self.manager.get_team_preset(preset_id)
+        slots = preset.get("slots", []) if preset else []
+        for index, card in enumerate(self.fixed_team_slots):
+            slot = slots[index] if index < len(slots) else {}
+            card.set_data(slot.get("char_id", ""), slot.get("combo_id", ""))
+        self.update_fixed_team_status()
+
+    def on_save_team_preset(self):
+        preset_id, preset_name = self._selected_team_preset()
+        slots, filled_count = self._collect_fixed_team_slots(
+            persist=True,
+            update_character_default=False,
+        )
+        char_ids = [slot.get("char_id", "") for slot in slots]
+        if filled_count != 4 or not all(char_ids) or len(set(char_ids)) != 4:
+            self._show_bar("", self.tr_preset_incomplete, success=False)
+            return
+        if not self.manager.set_team_preset(preset_id, preset_name, slots, activate=True):
+            self._show_bar("", self.tr_preset_save_failed, success=False)
+            return
+        self.refresh_fixed_team_state()
+        char_manager_signals.refresh_tab.emit()
+        self._show_bar(self.tr_preset_saved, preset_name)
+
+    def on_arm_team_preset(self):
+        preset_id, preset_name = self._selected_team_preset()
+        if not self.manager.arm_team_preset(preset_id):
+            self._show_bar("", self.tr_preset_arm_failed, success=False)
+            return
+        self.refresh_fixed_team_state()
+        self._show_bar(preset_name, self.tr_preset_armed)
 
     def on_scan_clicked(self):
         self.scan_btn.setEnabled(False)
@@ -719,24 +820,34 @@ class TeamManagerTab(CustomTab):
     def on_save_fixed_team(self):
         slots, filled_count = self._collect_fixed_team_slots(persist=True)
         if filled_count == 0:
-            self.manager.clear_fixed_team()
+            saved = self.manager.clear_fixed_team()
+            if not saved:
+                self._show_bar("", self.tr_preset_save_failed, success=False)
+                return
             self.refresh_fixed_team_state()
             char_manager_signals.refresh_tab.emit()
             self._show_bar(self.tr_clear_success_title, self.tr_clear_success_desc)
         else:
-            self.manager.set_fixed_team(True, slots)
+            saved = self.manager.set_fixed_team(True, slots)
+            if not saved:
+                self._show_bar("", self.tr_preset_save_failed, success=False)
+                return
             self.refresh_fixed_team_state()
             char_manager_signals.refresh_tab.emit()
             self._show_bar(self.tr_save_success_title, self.tr_save_success_desc)
 
     def on_disable_fixed_team(self):
         fixed_team = self.manager.get_fixed_team()
-        self.manager.set_fixed_team(False, fixed_team.get("slots", []))
+        if not self.manager.set_fixed_team(False, fixed_team.get("slots", [])):
+            self._show_bar("", self.tr_preset_save_failed, success=False)
+            return
         self.refresh_fixed_team_state()
         self._show_bar(self.tr_disable_success_title, self.tr_disable_success_desc)
 
     def on_clear_fixed_team(self):
-        self.manager.clear_fixed_team()
+        if not self.manager.clear_fixed_team():
+            self._show_bar("", self.tr_preset_save_failed, success=False)
+            return
         self.refresh_fixed_team_state()
         char_manager_signals.refresh_tab.emit()
         self._show_bar(self.tr_clear_success_title, self.tr_clear_success_desc)

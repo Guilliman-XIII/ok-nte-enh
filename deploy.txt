@@ -1,4 +1,5 @@
 src
+BUILD_COMMIT
 ok
 main.py
 main_debug.py

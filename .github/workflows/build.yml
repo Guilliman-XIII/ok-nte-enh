@@ -42,6 +42,10 @@ jobs:
           lfs: true
           fetch-depth: 0
 
+      - name: Record build commit
+        shell: pwsh
+        run: Set-Content -LiteralPath BUILD_COMMIT -Value "${{ github.sha }}" -NoNewline
+
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v6
         with:

@@ -10,12 +10,13 @@ from ok import Box, Logger, safe_get
 
 from src import text_white_color
 from src.char.BaseChar import BaseChar, Element
-from src.char.CharFactory import get_char_by_id, get_char_by_pos
+from src.char.CharFactory import get_char_by_id, get_char_by_pos, get_char_feature_by_pos
 from src.char.custom.CustomCharManager import CustomCharManager
 from src.char.Healer import Healer
 from src.combat.CombatCheck import CombatCheck
 from src.combat.planner import CombatPlanner
 from src.Labels import Labels
+from src.runtime_identity import resolve_runtime_identity
 from src.sound_trigger.SoundCombatContext import ACTION_UNSET, SoundCombatContext
 from src.tasks.mixin.CharUIMixin import CharElementUIMixin
 from src.utils import game_filters as gf
@@ -57,6 +58,8 @@ class BaseCombatTask(CharElementUIMixin, CombatCheck):
 
     hot_key_verified = False  # 热键是否已验证
     FREEZE_DURATION_RETENTION_SECONDS = 20 * 60
+    STRICT_TEAM_MATCH_THRESHOLD = 0.65
+    _runtime_identity_logged = False
 
     element_reactions = (
         "创生",
@@ -85,6 +88,11 @@ class BaseCombatTask(CharElementUIMixin, CombatCheck):
             **kwargs: 传递给父类的关键字参数。
         """
         super().__init__(*args, **kwargs)
+        if not BaseCombatTask._runtime_identity_logged:
+            from src.config import version
+
+            logger.info(resolve_runtime_identity(version).format_log())
+            BaseCombatTask._runtime_identity_logged = True
         self.sleep_check_skip = SleepCheckSkip()
         self.sleep_check_interval = 0.1
         self.chars: list[BaseChar] = []
@@ -96,6 +104,8 @@ class BaseCombatTask(CharElementUIMixin, CombatCheck):
         self.vibrate_chars_index: list[int] = []
         self.chars_slot_mat = [None, None, None, None]
         self.element_reaction_counts = {}
+        self._strict_team_last_error = ""
+        self.active_team_preset_id = ""
         self.combat_planner = CombatPlanner(self)
         self.clear_element_reactions()
         self.preheat_element_template_cache_async()
@@ -856,6 +866,57 @@ class BaseCombatTask(CharElementUIMixin, CombatCheck):
             if isinstance(char, char_cls):
                 return char
 
+    def _report_strict_team_error(self, message: str):
+        if message != self._strict_team_last_error:
+            self._strict_team_last_error = message
+            self.log_error(f"队伍预设校验失败：{message}", notify=True)
+        else:
+            logger.debug(f"strict team preset still blocked: {message}")
+
+    def _verify_armed_team(self, armed_preset: dict, count: int, manager) -> bool:
+        preset_name = armed_preset.get("name") or armed_preset.get("preset_id") or "未命名"
+        slots = armed_preset.get("slots", [])
+        if count != 4:
+            self._report_strict_team_error(f"{preset_name}要求四人队伍，当前识别到{count}人")
+            return False
+        if not isinstance(slots, list):
+            slots = []
+        expected_ids = [
+            slot.get("char_id", "") if isinstance(slot, dict) else "" for slot in slots[:4]
+        ]
+        if len(expected_ids) != 4 or not all(expected_ids) or len(set(expected_ids)) != 4:
+            self._report_strict_team_error(f"{preset_name}必须保存四名不同角色")
+            return False
+
+        frame = self.frame
+        for index, expected_char_id in enumerate(expected_ids):
+            feature_mat, _, _ = get_char_feature_by_pos(self, index, frame=frame)
+            expected_info = manager.get_character_info_by_id(expected_char_id)
+            expected_name = expected_info["char_name"] if expected_info else expected_char_id
+            if feature_mat is None or feature_mat.size <= 0:
+                self._report_strict_team_error(
+                    f"{preset_name}的{index + 1}号位未截取到头像，期望{expected_name}"
+                )
+                return False
+
+            matched, actual_char_id, confidence = manager.match_feature(
+                self,
+                feature_mat,
+                threshold=self.STRICT_TEAM_MATCH_THRESHOLD,
+            )
+            if not matched or actual_char_id != expected_char_id:
+                actual_info = manager.get_character_info_by_id(actual_char_id or "")
+                actual_name = actual_info["char_name"] if actual_info else "未识别"
+                self._report_strict_team_error(
+                    f"{preset_name}的{index + 1}号位期望{expected_name}，"
+                    f"实际{actual_name}（{confidence:.2f}）"
+                )
+                return False
+
+        self._strict_team_last_error = ""
+        self.log_info(f"队伍预设校验通过：{preset_name}")
+        return True
+
     def _do_load_char(self, index: int, fixed_slots) -> "BaseChar":
         fixed_slot = safe_get(fixed_slots, index)
         fixed_char_id = ""
@@ -897,8 +958,15 @@ class BaseCombatTask(CharElementUIMixin, CombatCheck):
         self.log_info(f"load_chars count {count} current_index {current_index}")
 
         self.clear_element_reactions()
-        fixed_team = CustomCharManager().get_fixed_team()
-        fixed_slots = fixed_team.get("slots", []) if fixed_team.get("enabled", False) else []
+        manager = CustomCharManager()
+        fixed_team = manager.get_fixed_team()
+        armed_preset = manager.get_armed_team_preset()
+        if armed_preset:
+            if not self._verify_armed_team(armed_preset, count, manager):
+                return False
+            fixed_slots = armed_preset["slots"]
+        else:
+            fixed_slots = fixed_team.get("slots", []) if fixed_team.get("enabled", False) else []
         new_chars = []
         indices_to_detect = []
         for i in range(count):
@@ -913,6 +981,19 @@ class BaseCombatTask(CharElementUIMixin, CombatCheck):
                 new_chars[i].element = detected_elements.get(i, Element.DEFAULT)
 
         elements = [char.element for char in new_chars]
+
+        if armed_preset:
+            consumed = manager.consume_armed_team_preset(armed_preset["preset_id"])
+            if not consumed:
+                self._report_strict_team_error("无法安全消费下一场武装状态，请重新保存预设")
+                return False
+            self.active_team_preset_id = consumed["preset_id"]
+            self.log_info(f"队伍预设已用于本场：{consumed['name']}")
+        else:
+            self.active_team_preset_id = (
+                fixed_team.get("active_preset_id", "") if fixed_team.get("enabled", False) else ""
+            )
+
         self.chars = new_chars
         self.combat_planner.reset(self.chars)
         self.info_set("char elements", elements)

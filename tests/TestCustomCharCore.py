@@ -3,6 +3,7 @@ import os
 import shutil
 import unittest
 import uuid
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 from src.char.custom.CustomChar import CustomChar
@@ -323,6 +324,163 @@ class TestCustomCharCore(unittest.TestCase):
         self.assertEqual(fixed_team["slots"][0]["char_id"], char_id)
         self.assertEqual(fixed_team["slots"][0]["combo_id"], PREDEFINED_CHARACTER_ID)
         self.assertNotIn("combo_ref", fixed_team["slots"][0])
+
+    def _create_complete_team(self, manager, prefix="team"):
+        slots = []
+        for index in range(4):
+            char_id = manager.create_character(f"{prefix}_{index}", "")
+            slots.append({"char_id": char_id, "combo_id": ""})
+        return slots
+
+    def test_v5_to_v6_migration_preserves_ids_and_creates_backup(self):
+        legacy = {
+            "schema_version": 5,
+            "combos": {"combo_stable": {"name": "stable", "content": "skill"}},
+            "characters": {
+                "char_stable": {
+                    "name": "stable hero",
+                    "combo_id": "combo_stable",
+                    "feature_ids": [],
+                }
+            },
+            "features": {},
+            "fixed_team": {
+                "enabled": True,
+                "slots": [{"char_id": "char_stable", "combo_id": "combo_stable"}],
+            },
+        }
+        self._write_db(legacy)
+
+        manager = CustomCharManager()
+
+        self.assertEqual(manager.db["schema_version"], 6)
+        self.assertIn("combo_stable", manager.db["combos"])
+        self.assertIn("char_stable", manager.db["characters"])
+        self.assertEqual(manager.get_fixed_team()["selection_mode"], "manual")
+        self.assertTrue(os.path.exists(f"{self.db_path}.schema-v5.bak"))
+
+        with open(f"{self.db_path}.schema-v5.bak", "r", encoding="utf-8") as f:
+            backup = json.load(f)
+        self.assertEqual(backup, legacy)
+
+        CustomCharManager._instance = None
+        reloaded = CustomCharManager()
+        self.assertEqual(reloaded.db["schema_version"], 6)
+        self.assertEqual(reloaded.get_fixed_team(), manager.get_fixed_team())
+
+    def test_future_schema_is_rejected_without_rewriting_file(self):
+        future = {
+            "schema_version": DB_SCHEMA_VERSION + 1,
+            "combos": {},
+            "characters": {},
+            "features": {},
+            "fixed_team": {"future_only": {"keep": True}},
+        }
+        self._write_db(future)
+        before = Path(self.db_path).read_bytes()
+
+        with self.assertRaisesRegex(RuntimeError, "newer than supported"):
+            CustomCharManager()
+
+        self.assertEqual(Path(self.db_path).read_bytes(), before)
+
+    def test_migration_save_failure_keeps_original_and_backup(self):
+        legacy = {
+            "schema_version": 5,
+            "combos": {},
+            "characters": {},
+            "features": {},
+            "fixed_team": {"enabled": False, "slots": []},
+        }
+        self._write_db(legacy)
+        before = Path(self.db_path).read_bytes()
+
+        with (
+            patch("src.char.custom.CustomCharManager.CustomCharDb.save_db", return_value=False),
+            self.assertRaisesRegex(RuntimeError, "Unable to save migrated"),
+        ):
+            CustomCharManager()
+
+        self.assertEqual(Path(self.db_path).read_bytes(), before)
+        self.assertTrue(os.path.exists(f"{self.db_path}.schema-v5.bak"))
+
+    def test_named_team_preset_projection_arm_and_one_shot_consume(self):
+        manager = CustomCharManager()
+        slots = self._create_complete_team(manager, "baicang")
+
+        self.assertTrue(
+            manager.set_team_preset("team_baicang_speed", "白藏竞速队", slots, activate=True)
+        )
+        selected = manager.get_fixed_team()
+        self.assertEqual(selected["active_preset_id"], "team_baicang_speed")
+        self.assertFalse(selected["enabled"])
+        self.assertEqual(selected["slots"], slots)
+
+        self.assertTrue(manager.arm_team_preset("team_baicang_speed"))
+        armed = manager.get_fixed_team()
+        self.assertTrue(armed["enabled"])
+        self.assertEqual(armed["armed_for_next_battle"], "team_baicang_speed")
+
+        consumed = manager.consume_armed_team_preset("team_baicang_speed")
+        self.assertEqual(consumed["preset_id"], "team_baicang_speed")
+        after = manager.get_fixed_team()
+        self.assertFalse(after["enabled"])
+        self.assertEqual(after["armed_for_next_battle"], "")
+        self.assertEqual(after["active_preset_id"], "team_baicang_speed")
+        self.assertIsNone(manager.consume_armed_team_preset("team_baicang_speed"))
+
+    def test_team_preset_requires_four_unique_characters(self):
+        manager = CustomCharManager()
+        slots = self._create_complete_team(manager)
+        duplicate_slots = list(slots)
+        duplicate_slots[3] = dict(duplicate_slots[0])
+
+        self.assertFalse(manager.set_team_preset("team", "team", slots[:3]))
+        self.assertFalse(manager.set_team_preset("team", "team", duplicate_slots))
+        self.assertFalse(manager.set_team_preset("bad id", "team", slots))
+        self.assertEqual(manager.get_team_presets(), {})
+
+    def test_team_preset_save_failure_rolls_back_memory(self):
+        manager = CustomCharManager()
+        slots = self._create_complete_team(manager)
+        before = manager.get_fixed_team()
+
+        with patch("src.char.custom.CustomCharManager.CustomCharDb.save_db", return_value=False):
+            saved = manager.set_team_preset("team_safe", "safe", slots)
+
+        self.assertFalse(saved)
+        self.assertEqual(manager.get_fixed_team(), before)
+
+    def test_character_and_combo_deletion_clean_all_preset_references(self):
+        manager = CustomCharManager()
+        combo_id = manager.add_combo("local override", "skill")
+        slots = self._create_complete_team(manager)
+        slots[0]["combo_id"] = combo_id
+        removed_char_id = slots[1]["char_id"]
+        self.assertTrue(manager.set_team_preset("team_cleanup", "cleanup", slots))
+        self.assertTrue(manager.arm_team_preset("team_cleanup"))
+
+        manager.delete_combo(combo_id)
+        preset = manager.get_team_preset("team_cleanup")
+        self.assertEqual(preset["slots"][0]["combo_id"], "")
+
+        manager.delete_character(removed_char_id)
+        preset = manager.get_team_preset("team_cleanup")
+        self.assertEqual(preset["slots"][1], {"char_id": "", "combo_id": ""})
+        fixed_team = manager.get_fixed_team()
+        self.assertFalse(fixed_team["enabled"])
+        self.assertEqual(fixed_team["armed_for_next_battle"], "")
+
+    def test_team_preset_member_matching_requires_one_unique_preset(self):
+        manager = CustomCharManager()
+        slots = self._create_complete_team(manager)
+        char_ids = [slot["char_id"] for slot in slots]
+        self.assertTrue(manager.set_team_preset("team_a", "A", slots))
+        self.assertEqual(manager.match_team_preset(list(reversed(char_ids))), "team_a")
+
+        self.assertTrue(manager.set_team_preset("team_b", "B", list(reversed(slots))))
+        self.assertIsNone(manager.match_team_preset(char_ids))
+        self.assertIsNone(manager.match_team_preset(char_ids[:3]))
 
 
 if __name__ == "__main__":

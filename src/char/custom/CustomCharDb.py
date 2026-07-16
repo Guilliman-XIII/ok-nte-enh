@@ -1,12 +1,14 @@
 import json
 import os
 import re
+import shutil
 from collections.abc import Callable, Iterable
+from copy import deepcopy
 
-
-DB_SCHEMA_VERSION = 5
+DB_SCHEMA_VERSION = 6
 LEGACY_BUILTIN_PREFIX = "builtin:"
 LEGACY_KEY_PATTERN = re.compile(r"\(([^)]+)\)\s*$")
+TEAM_SELECTION_MODES = {"manual", "auto"}
 
 
 def as_text(value) -> str:
@@ -18,7 +20,14 @@ def is_blank_text(value) -> bool:
 
 
 def default_fixed_team():
-    return {"enabled": False, "slots": [{"char_id": "", "combo_id": ""} for _ in range(4)]}
+    return {
+        "enabled": False,
+        "selection_mode": "manual",
+        "active_preset_id": "",
+        "armed_for_next_battle": "",
+        "slots": [{"char_id": "", "combo_id": ""} for _ in range(4)],
+        "presets": {},
+    }
 
 
 def normalize_fixed_team_slot(slot) -> dict:
@@ -34,16 +43,63 @@ def normalize_fixed_team_slot(slot) -> dict:
     }
 
 
+def normalize_team_slots(slots) -> list[dict]:
+    normalized = [normalize_fixed_team_slot(None) for _ in range(4)]
+    if isinstance(slots, list):
+        for i in range(min(4, len(slots))):
+            normalized[i] = normalize_fixed_team_slot(slots[i])
+    return normalized
+
+
+def is_complete_team_slots(slots) -> bool:
+    normalized = normalize_team_slots(slots)
+    char_ids = [slot["char_id"] for slot in normalized]
+    return all(char_ids) and len(set(char_ids)) == 4
+
+
+def normalize_team_preset(preset, preset_id="") -> dict:
+    preset = preset if isinstance(preset, dict) else {}
+    name = as_text(preset.get("name", "")).strip() or as_text(preset_id).strip()
+    return {
+        "name": name,
+        "slots": normalize_team_slots(preset.get("slots", [])),
+    }
+
+
 def normalize_fixed_team_config(config) -> dict:
     normalized = default_fixed_team()
     if not isinstance(config, dict):
         return normalized
 
     normalized["enabled"] = bool(config.get("enabled", False))
-    raw_slots = config.get("slots", [])
-    if isinstance(raw_slots, list):
-        for i in range(min(4, len(raw_slots))):
-            normalized["slots"][i] = normalize_fixed_team_slot(raw_slots[i])
+    selection_mode = as_text(config.get("selection_mode", "manual")).strip().lower()
+    if selection_mode in TEAM_SELECTION_MODES:
+        normalized["selection_mode"] = selection_mode
+    normalized["slots"] = normalize_team_slots(config.get("slots", []))
+
+    raw_presets = config.get("presets", {})
+    if isinstance(raw_presets, dict):
+        for raw_preset_id, raw_preset in raw_presets.items():
+            preset_id = as_text(raw_preset_id).strip()
+            if not preset_id:
+                continue
+            normalized["presets"][preset_id] = normalize_team_preset(raw_preset, preset_id)
+
+    raw_active_id = as_text(config.get("active_preset_id", "")).strip()
+    raw_armed_id = as_text(config.get("armed_for_next_battle", "")).strip()
+    if raw_active_id in normalized["presets"]:
+        normalized["active_preset_id"] = raw_active_id
+        normalized["slots"] = deepcopy(normalized["presets"][raw_active_id]["slots"])
+    elif raw_active_id:
+        normalized["enabled"] = False
+
+    if raw_armed_id in normalized["presets"]:
+        normalized["armed_for_next_battle"] = raw_armed_id
+        normalized["active_preset_id"] = raw_armed_id
+        normalized["slots"] = deepcopy(normalized["presets"][raw_armed_id]["slots"])
+        normalized["enabled"] = True
+    elif raw_armed_id:
+        normalized["enabled"] = False
     return normalized
 
 
@@ -96,7 +152,7 @@ def load_db(db_path: str, logger=None) -> dict:
     return loaded
 
 
-def save_db(db_path: str, db: dict, logger=None):
+def save_db(db_path: str, db: dict, logger=None) -> bool:
     try:
         db["schema_version"] = DB_SCHEMA_VERSION
         db_dir = os.path.dirname(db_path)
@@ -106,9 +162,26 @@ def save_db(db_path: str, db: dict, logger=None):
         with open(temp_path, "w", encoding="utf-8") as f:
             json.dump(db, f, indent=4, ensure_ascii=False)
         os.replace(temp_path, db_path)
+        return True
     except Exception as e:
         if logger:
             logger.error("Failed to save custom char DB", e)
+        return False
+
+
+def backup_db_before_migration(db_path: str, source_schema_version: int, logger=None) -> bool:
+    if not os.path.exists(db_path):
+        return True
+    backup_path = f"{db_path}.schema-v{source_schema_version}.bak"
+    if os.path.exists(backup_path):
+        return True
+    try:
+        shutil.copy2(db_path, backup_path)
+        return True
+    except Exception as e:
+        if logger:
+            logger.error("Failed to back up custom char DB before migration", e)
+        return False
 
 
 def validate_db(
@@ -149,11 +222,6 @@ def validate_db(
 
     if not isinstance(db.get("features"), dict):
         db["features"] = {}
-        modified = True
-
-    fixed_team = normalize_fixed_team_config(db.get("fixed_team"))
-    if fixed_team != db.get("fixed_team"):
-        db["fixed_team"] = fixed_team
         modified = True
 
     used_names = set()
@@ -198,6 +266,44 @@ def validate_db(
         if not os.path.exists(path):
             del db["features"][fid]
             modified = True
+
+    fixed_team = normalize_fixed_team_config(db.get("fixed_team"))
+    valid_char_ids = set(db["characters"])
+    valid_custom_combo_ids = set(db["combos"])
+
+    def clean_slots(slots):
+        nonlocal modified
+        cleaned = normalize_team_slots(slots)
+        for slot in cleaned:
+            if slot["char_id"] and slot["char_id"] not in valid_char_ids:
+                slot["char_id"] = ""
+                slot["combo_id"] = ""
+                modified = True
+            combo_id = slot["combo_id"]
+            if (
+                combo_id
+                and not is_builtin_combo(combo_id)
+                and combo_id not in valid_custom_combo_ids
+            ):
+                slot["combo_id"] = ""
+                modified = True
+        return cleaned
+
+    fixed_team["slots"] = clean_slots(fixed_team["slots"])
+    for preset in fixed_team["presets"].values():
+        preset["slots"] = clean_slots(preset["slots"])
+
+    active_id = fixed_team["active_preset_id"]
+    if active_id:
+        active_slots = fixed_team["presets"][active_id]["slots"]
+        fixed_team["slots"] = deepcopy(active_slots)
+        if not is_complete_team_slots(active_slots):
+            fixed_team["enabled"] = False
+            fixed_team["armed_for_next_battle"] = ""
+
+    if fixed_team != db.get("fixed_team"):
+        db["fixed_team"] = fixed_team
+        modified = True
 
     return modified
 
@@ -279,6 +385,16 @@ def migrate_db_schema(
 
     if source_schema_version >= DB_SCHEMA_VERSION:
         return db, False
+
+    if source_schema_version == 5:
+        migrated = {
+            "schema_version": DB_SCHEMA_VERSION,
+            "combos": deepcopy(db.get("combos", {})),
+            "characters": deepcopy(db.get("characters", {})),
+            "features": deepcopy(db.get("features", {})),
+            "fixed_team": normalize_fixed_team_config(db.get("fixed_team")),
+        }
+        return migrated, True
 
     raw_combos = db.get("combos", {})
     raw_characters = db.get("characters", {})
