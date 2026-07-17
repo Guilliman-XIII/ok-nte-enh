@@ -43,11 +43,11 @@ switch request: return Baicang after Daphneel burst
 
 - 早雾首先聚怪，哈妮娅和达芙蒂尔不长时间占场。
 - 达芙蒂尔 E 后若 Q 可用，应进入有界爆发，再回白藏。
-- 白藏 Q 后保持右键输出；声音闪避/反击仍能工作。
+- 白藏 Q 后保持普通攻击输出；声音模块继续负责闪避/反击。
 - 哈妮娅 Q 不可用时路线继续，不在哈妮娅处等待。
 - 任一辅助 E/Q 点击失败时应出现 optional step skip，并继续回白藏，不能重复空放到超时。
 - 后续普通短切结束后，即使白藏 E/Q 仍在冷却，也应看到 `return Baicang after ...`。
-- 20 秒后仍未完成时应出现 route deadline 日志并恢复普通 Planner。
+- 24 秒后仍未完成时应出现 route deadline 日志并恢复普通 Planner。
 
 ## 3. 第二队：小吱盈蓄队
 
@@ -107,6 +107,7 @@ strict route fulfilled: Chiz Yingxu abyss opener
 - 自定义角色数据库首次从 schema v5 升级到 v6 前，会保留
   `custom_chars/db.json.schema-v5.bak`。v6 数据不支持再用旧版 OKNTE 保存。
 - 白藏队当前是哈妮娅竞速版，没有按血线自动切法蒂娅。
-- 白藏队首轮后由通用 Planner 调度；小吱队会在每次完整 Q 爆发后自动重建双环合轴。
+- 白藏首版采用稳定平 A，不启用尚未实机验证的 Shift 移动攻击；白藏队首轮后由通用 Planner
+  调度。小吱队会在每次完整 Q 爆发后自动重建双环合轴。
 - 攻略资料只用于提出待验证假设。实现依据仍以游戏实机、OKNTE 日志和用户录屏为准。
 - 自动化存在游戏账号处罚风险；继续沿用 OKNTE README 的风险边界，不进行注入或内存读取。
