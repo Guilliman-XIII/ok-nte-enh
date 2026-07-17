@@ -6,7 +6,6 @@ from src.combat.planner import (
     ActionTag,
     CombatContext,
     FieldPreference,
-    FollowupStep,
     Role,
     RoleProfile,
 )
@@ -15,38 +14,32 @@ _LOG_PREFIX = "[Baicang]"
 
 
 class Baicang(BaseChar):
-    """白藏 - 咒系(RED)主C，以闪避(右键)攻击为核心输出。
+    """Baicang main DPS with a conservative normal-attack fallback.
 
-    结构参考 Nanally: E/Q 分离为 planner-visible action，
-    Q 成功后进入角色专属爆发循环，循环内第二 E 检查 SKILL reservation。
-
-    详细游戏机制见 docs/research/baicang.md。
+    V1 intentionally avoids the unverified Shift movement combo. Sound-triggered
+    dodge and counter logic remains owned by BaseCombatTask.
     """
 
-    MAX_FIELD_TIME = 0  # 禁止 Planner 通用平A fallback；白藏用专属 dodge action
-    ULT_FIELD_DURATION = 8.0
+    MAX_FIELD_TIME = 0
+    ULT_FIELD_DURATION = 12.0
     FALLBACK_DODGE_DURATION = 1.5
+    NORMAL_ATTACK_INTERVAL = 0.18
+    ATTACK_SLICE_DURATION = 0.36
     DODGE_CLICK_INTERVAL = 0.12
     DODGE_SLICE_DURATION = 0.12
     SKILL_CHECK_INTERVAL = 1.5
     SECOND_SKILL_MODE = "observe"  # disabled | observe | execute
     SKILL_READY_STREAK_THRESHOLD = 3
     SKILL_SHORT_TIMEOUT = 2.0
-    DEFAULT_DIRECTION_KEY = None  # 第一轮实机不按方向键，先验证右键本身有效
-    POST_SKILL_DODGE_DURATION = 1.0  # E 成功但 Q 失败时的短右键输出
-    ABYSS_OPENER_TIMEOUT = 20.0
+    DEFAULT_DIRECTION_KEY = None
+    POST_SKILL_DODGE_DURATION = 1.0
+    ABYSS_OPENER_TIMEOUT = 24.0
 
     @staticmethod
     def is_abyss_team(chars):
-        """仅识别用户固定的哈妮娅竞速队，不影响白藏的其他配队。"""
-        from src.char.Daphneel import Daphneel
-        from src.char.Hania import Hania
-        from src.char.Sakiri import Sakiri
+        from src.combat.team_strategies import is_baicang_abyss_team
 
-        required = (Baicang, Daphneel, Hania, Sakiri)
-        return len(chars) == 4 and all(
-            sum(isinstance(char, char_cls) for char in chars) == 1 for char_cls in required
-        )
+        return is_baicang_abyss_team(chars)
 
     @classmethod
     def request_abyss_return(cls, context: CombatContext, chars, reason: str) -> None:
@@ -57,62 +50,7 @@ class Baicang(BaseChar):
         context.request_switch(baicang, reason=reason)
 
     def combat_policies(self, context: CombatContext) -> None:
-        if not self.is_abyss_team(self.task.chars):
-            return
-
-        from src.char.Daphneel import Daphneel
-        from src.char.Hania import Hania
-        from src.char.Sakiri import Sakiri
-
-        sakiri = next(char for char in self.task.chars if isinstance(char, Sakiri))
-        hania = next(char for char in self.task.chars if isinstance(char, Hania))
-        daphneel = next(char for char in self.task.chars if isinstance(char, Daphneel))
-        route_started_at = None
-
-        def route_expired():
-            nonlocal route_started_at
-            now = time.monotonic()
-            if route_started_at is None:
-                route_started_at = now
-                return False
-            return now - route_started_at >= self.ABYSS_OPENER_TIMEOUT
-
-        context.request_route(
-            [
-                FollowupStep.for_action(
-                    sakiri,
-                    ActionSlot.SKILL,
-                    reason="Sakiri groups enemies for Baicang opener",
-                    optional=True,
-                ),
-                FollowupStep.for_action(
-                    hania,
-                    ActionSlot.ULTIMATE,
-                    reason="Hania opens enhanced damage window",
-                    optional=True,
-                ),
-                FollowupStep.for_action(
-                    hania,
-                    ActionSlot.SKILL,
-                    reason="Hania deploys off-field damage",
-                    optional=True,
-                ),
-                FollowupStep.for_action(
-                    daphneel,
-                    ActionSlot.SKILL,
-                    reason="Daphneel primes dark burst before Baicang",
-                    optional=True,
-                ),
-                FollowupStep.for_action(
-                    daphneel,
-                    ActionSlot.ULTIMATE,
-                    reason="Daphneel spends dark burst before Baicang",
-                    optional=True,
-                ),
-            ],
-            reason="Baicang abyss opener",
-            until=route_expired,
-        )
+        return None
 
     def describe_role(self):
         return RoleProfile(
@@ -191,9 +129,9 @@ class Baicang(BaseChar):
                     return
 
                 remaining = deadline - self._now()
-                slice_dur = min(self.DODGE_SLICE_DURATION, remaining)
+                slice_dur = min(self.ATTACK_SLICE_DURATION, remaining)
                 if slice_dur > 0:
-                    self._right_click_burst(slice_dur)
+                    self._normal_attack_slice(slice_dur)
 
                 self.sleep(0.01)
                 self.check_combat()
@@ -260,17 +198,17 @@ class Baicang(BaseChar):
         return clicked
 
     def _post_skill_dodge(self):
-        """E 成功但 Q 失败时的短右键输出，避免 E-only 路径无核心输出。"""
-        self.logger.info(f"{_LOG_PREFIX} post-skill dodge (E ok, Q fail)")
+        """Legacy method name: execute normal attacks after an E-only entry."""
+        self.logger.info(f"{_LOG_PREFIX} post-skill normal attacks")
         self._checkpointed_dodge(self.POST_SKILL_DODGE_DURATION)
 
     def _execute_fallback_dodge(self):
-        """Q/E 均不可用时的兜底：有限时长的闪避攻击。"""
+        """Legacy method name: bounded normal attacks when Q/E are unavailable."""
         if self.is_dead or not self.is_current_char:
-            self.logger.info(f"{_LOG_PREFIX} fallback dodge skipped (dead or not current)")
+            self.logger.info(f"{_LOG_PREFIX} fallback attacks skipped (dead or not current)")
             return False
 
-        self.logger.info(f"{_LOG_PREFIX} fallback dodge")
+        self.logger.info(f"{_LOG_PREFIX} fallback normal attacks")
         self._checkpointed_dodge(self.FALLBACK_DODGE_DURATION)
 
         if not self.is_current_char or self.is_dead:
@@ -280,7 +218,7 @@ class Baicang(BaseChar):
         return True
 
     def _checkpointed_dodge(self, duration) -> bool:
-        """以短分片输出右键，确保声音闪避/反击能通过 sleep checkpoint 抢占。"""
+        """Legacy method name: normal attacks with frequent sound-check checkpoints."""
         deadline = self._now() + max(duration, 0)
         direction_key = self.DEFAULT_DIRECTION_KEY
         try:
@@ -291,13 +229,25 @@ class Baicang(BaseChar):
                 if not self.is_current_char or self.is_dead:
                     return False
                 remaining = deadline - self._now()
-                self._right_click_burst(min(self.DODGE_SLICE_DURATION, remaining))
+                self._normal_attack_slice(min(self.ATTACK_SLICE_DURATION, remaining))
                 self.sleep(0.01)
                 self.check_combat()
         finally:
             if direction_key is not None:
                 self.task.send_key_up(direction_key)
         return self.is_current_char and not self.is_dead
+
+    def _normal_attack_slice(self, duration):
+        if duration <= 0:
+            return
+        deadline = self._now() + duration
+        while self._now() < deadline:
+            if not self.is_current_char or self.is_dead:
+                return
+            self.normal_attack()
+            remaining = deadline - self._now()
+            if remaining > 0:
+                self.sleep(min(self.NORMAL_ATTACK_INTERVAL, remaining))
 
     def _right_click_burst(self, duration):
         """持续右键点击 ``duration`` 秒，不管理方向键。"""

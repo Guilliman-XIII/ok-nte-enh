@@ -2,14 +2,7 @@ import re
 import time
 
 from src.char.BaseChar import BaseChar
-from src.combat.planner import (
-    ActionSlot,
-    CombatContext,
-    FieldPreference,
-    FollowupStep,
-    Role,
-    RoleProfile,
-)
+from src.combat.planner import CombatContext, Planner, RoleProfile
 
 
 class Chiz(BaseChar):
@@ -22,116 +15,19 @@ class Chiz(BaseChar):
 
     @staticmethod
     def is_abyss_team(chars):
-        """仅识别小吱、九原、翳、零的固定盈蓄队。"""
-        from src.char.Jiuyuan import Jiuyuan
-        from src.char.Yi import Yi
-        from src.char.Zero import Zero
+        from src.combat.team_strategies import is_chiz_abyss_team
 
-        required = (Chiz, Jiuyuan, Yi, Zero)
-        return len(chars) == 4 and all(
-            sum(isinstance(char, char_cls) for char in chars) == 1 for char_cls in required
-        )
-
-    def combat_policies(self, context: CombatContext) -> None:
-        self._request_yingxu_route(context, opener=True)
+        return is_chiz_abyss_team(chars)
 
     def _request_yingxu_route(self, context: CombatContext, opener: bool) -> None:
-        if not self.is_abyss_team(self.task.chars):
-            return
+        from src.combat.team_strategies import request_chiz_route
 
-        from src.char.Jiuyuan import Jiuyuan
-        from src.char.Yi import Yi
-        from src.char.Zero import Zero
-
-        jiuyuan = next(char for char in self.task.chars if isinstance(char, Jiuyuan))
-        yi = next(char for char in self.task.chars if isinstance(char, Yi))
-        zero = next(char for char in self.task.chars if isinstance(char, Zero))
-        route_started_at = None
-
-        def route_expired():
-            nonlocal route_started_at
-            now = time.monotonic()
-            if route_started_at is None:
-                route_started_at = now
-                return False
-            return now - route_started_at >= self.ABYSS_ROUTE_TIMEOUT
-
-        steps = []
-        if opener:
-            steps.append(
-                FollowupStep.for_action(
-                    jiuyuan,
-                    ActionSlot.SKILL,
-                    reason="Jiuyuan groups enemies for Yingxu opener",
-                )
-            )
-        steps.extend(
-            [
-                FollowupStep.for_action(
-                    zero,
-                    ActionSlot.ULTIMATE,
-                    reason="Zero adds light setup",
-                    optional=True,
-                ),
-                FollowupStep.for_action(
-                    zero,
-                    ActionSlot.SKILL,
-                    reason="Zero fills the first element ring",
-                ),
-                FollowupStep.for_entry_reaction(
-                    jiuyuan,
-                    reason="Jiuyuan triggers Creation from the first ring",
-                ),
-                FollowupStep.for_action(
-                    jiuyuan,
-                    ActionSlot.ULTIMATE,
-                    reason="Jiuyuan adds off-field spirit damage",
-                    optional=True,
-                ),
-                FollowupStep.for_action(
-                    jiuyuan,
-                    ActionSlot.SKILL,
-                    reason="Jiuyuan refreshes grouping if ready",
-                    optional=True,
-                ),
-                FollowupStep.for_action(
-                    zero,
-                    ActionSlot.SKILL,
-                    reason="Zero fills the second element ring",
-                ),
-                FollowupStep.for_entry_reaction(
-                    yi,
-                    reason="Yi triggers Delay from the second ring",
-                ),
-                FollowupStep.for_action(
-                    yi,
-                    ActionSlot.ULTIMATE,
-                    reason="Yi applies ultimate setup",
-                    optional=True,
-                ),
-                FollowupStep.for_action(
-                    yi,
-                    ActionSlot.SKILL,
-                    reason="Yi applies aspect setup",
-                ),
-                FollowupStep.for_action(
-                    self,
-                    ActionSlot.ULTIMATE,
-                    reason="Chiz spends Yingxu energy in the damage window",
-                ),
-            ]
-        )
-        route_name = "opener" if opener else "cycle"
-        context.request_route(
-            steps,
-            reason=f"Chiz Yingxu abyss {route_name}",
-            until=route_expired,
-        )
+        request_chiz_route(context, opener=opener)
 
     def describe_role(self):
         return RoleProfile(
-            role=Role.MAIN_DPS,
-            field_preference=FieldPreference.MAIN_DPS,
+            role=Planner.Role.MAIN_DPS,
+            field_preference=Planner.FieldPreference.MAIN_DPS,
         )
 
     def combat_plan(self, context):
@@ -168,7 +64,10 @@ class Chiz(BaseChar):
                 not skill_attempted
                 and yellow_pct > red_pct
                 and self.skill_available()
-                and (context is None or context.can_execute_action(self, slot=ActionSlot.SKILL))
+                and (
+                    context is None
+                    or context.can_execute_action(self, slot=Planner.ActionSlot.SKILL)
+                )
             ):
                 skill_attempted = True
                 self.click_skill(time_out=self.SKILL_SHORT_TIMEOUT)

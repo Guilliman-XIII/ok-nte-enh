@@ -23,12 +23,14 @@ class DailyTask(NTEOneTimeTask, CinemaDateMixin, BaseNTETask):
     """日常任务执行器"""
 
     # --- 配置项键名 ---
+    CONF_TASK = "副本类型"
+    TASK = [AnomalyTask.NAME]
+
     CONF_CLAIM_MAIL = "领取邮件"
     CONF_COMPLETE_DAILY = "完成每日活跃度"
     CONF_CLAIM_ACTIVITY = "领取活跃度奖励"
     CONF_CLAIM_BP = "领取环期任务奖励"
     CONF_COFFEE_TASK = "一咖舍任务"
-    CONF_AUTO_CYCLE_SUB_TASK = "自动循环项目"
     CONF_CINEMA_DATE = "影院约会"
     CONF_FURNITURE = "异象家具"
     CONF_GIFT = "羁遇赠礼"
@@ -51,21 +53,20 @@ class DailyTask(NTEOneTimeTask, CinemaDateMixin, BaseNTETask):
         self.task_status = {"success": [], "failed": [], "skipped": [], "pending": []}
         self.working_task: Optional[BaseNTETask] = None
 
-        AnomalyTask.setup_config(self)
+        AnomalyTask.setup_config(self, setup_cycle=True)
         self.default_config.update(
             {
+                self.CONF_TASK: self.TASK[0],
                 self.DAILY_STAMINA_TARGET: 180,
-                self.CONF_AUTO_CYCLE_SUB_TASK: False,
                 self.CONF_COFFEE_TASK: self.COFFEE_MODE_NONE,
                 self.CONF_CINEMA_DATE: False,
                 self.CINEMA_DATE_TARGET: "",
                 self.CONF_FURNITURE: False,
-                self.CONF_GIFT: False
+                self.CONF_GIFT: False,
             }
         )
         self.config_description.update(
             {
-                self.CONF_AUTO_CYCLE_SUB_TASK: "任务完成后自动切换至下一个项目",
                 self.CONF_COFFEE_TASK: "选择日常任务中的一咖舍处理方式",
             }
         )
@@ -75,6 +76,16 @@ class DailyTask(NTEOneTimeTask, CinemaDateMixin, BaseNTETask):
             coffee_options.append(self.COFFEE_MODE_AUTO)
         self.config_type.update(
             {
+                self.CONF_TASK: {
+                    "type": "drop_down",
+                    "options": self.TASK,
+                    "sub_configs": {
+                        self.TASK[0]: {
+                            AnomalyTask.CONF_TASK_TYPE,
+                            AnomalyTask.CONF_AUTO_CYCLE_SUB_TASK,
+                        },
+                    },
+                },
                 self.CONF_COFFEE_TASK: {
                     "type": "drop_down",
                     "options": coffee_options,
@@ -107,13 +118,19 @@ class DailyTask(NTEOneTimeTask, CinemaDateMixin, BaseNTETask):
         self.ensure_main()
         self.log_info("开始执行日常任务")
 
+        coffee_mode = [self.COFFEE_MODE_CLAIM_AND_RESTOCK, self.COFFEE_MODE_AUTO]
+
         tasks: List[Tuple[str, bool, Callable]] = [
             (
                 self.CONF_CLAIM_MAIL,
                 self._task_enabled(self.CONF_CLAIM_MAIL, True),
                 self.claim_mail,
             ),
-            *self._coffee_task_entries(),
+            (
+                self.CONF_COFFEE_TASK,
+                self.config.get(self.CONF_COFFEE_TASK) in coffee_mode,
+                self.run_coffee_task,
+            ),
             (
                 self.CONF_COMPLETE_DAILY,
                 self._task_enabled(self.CONF_COMPLETE_DAILY, True),
@@ -157,28 +174,6 @@ class DailyTask(NTEOneTimeTask, CinemaDateMixin, BaseNTETask):
 
     def _task_enabled(self, key, default):
         return bool(self.config.get(key, default))
-
-    def _coffee_task_entries(self) -> List[Tuple[str, bool, Callable]]:
-        coffee_task = self._coffee_task_entry()
-        return [coffee_task] if coffee_task else []
-
-    def _coffee_task_entry(self) -> Optional[Tuple[str, bool, Callable]]:
-        mode = self._coffee_task_mode()
-        if mode == self.COFFEE_MODE_CLAIM_AND_RESTOCK:
-            return (self.COFFEE_MODE_CLAIM_AND_RESTOCK, True, self.claim_coffee)
-        if mode == self.COFFEE_MODE_AUTO:
-            return (self.COFFEE_MODE_AUTO, True, self.run_coffee_task)
-        return None
-
-    def _coffee_task_mode(self):
-        mode = self.config.get(self.CONF_COFFEE_TASK)
-        if mode in (
-            self.COFFEE_MODE_NONE,
-            self.COFFEE_MODE_CLAIM_AND_RESTOCK,
-            self.COFFEE_MODE_AUTO,
-        ):
-            return mode
-        return self.COFFEE_MODE_NONE
 
     def execute_task(self, key, enabled, func):
         """执行单个子任务。
@@ -280,6 +275,15 @@ class DailyTask(NTEOneTimeTask, CinemaDateMixin, BaseNTETask):
         self.sleep(1)
         return True
 
+    def run_coffee_task(self):
+        mode = self.config.get(self.CONF_COFFEE_TASK)
+        match mode:
+            case self.COFFEE_MODE_AUTO:
+                with self.set_working_task(CoffeeTask) as task:
+                    task.do_run()
+            case self.COFFEE_MODE_CLAIM_AND_RESTOCK:
+                self.claim_coffee()
+
     def complete_daily_activities(self):
         """执行操作完成每日活跃度"""
         self.log_info("正在执行每日活跃度任务")
@@ -298,10 +302,13 @@ class DailyTask(NTEOneTimeTask, CinemaDateMixin, BaseNTETask):
             return True
         self.info_set("must use stamina", must_use)
 
-        with self.set_working_task(AnomalyTask) as task:
-            ret = task.do_run(self.config, stamina_target=must_use)
-            if ret:
-                self.shift_idx(task)
+        ret = False
+        task_name = self.config.get(self.CONF_TASK)
+        if task_name == AnomalyTask.NAME:
+            with self.set_working_task(AnomalyTask) as task:
+                if ret := task.do_run(self.config, stamina_target=must_use):
+                    task.shift_idx(self)
+
         return ret
 
     @contextmanager
@@ -324,24 +331,6 @@ class DailyTask(NTEOneTimeTask, CinemaDateMixin, BaseNTETask):
         if self.working_task:
             return self.working_task.sleep_check()
         return super().sleep_check()
-
-    def shift_idx(self, task):
-        """切换任务索引"""
-        if self.config.get(self.CONF_AUTO_CYCLE_SUB_TASK):
-            if isinstance(task, AnomalyTask):
-                task_type = self.config.get(task.CONF_TASK_TYPE)
-                next_idx = task.get_next_sub_idx(self.config)
-                if task_type == task.TASK_EXP_COIN:
-                    self.config[task.CONF_EXP_TARGET] = task.EXP_ALL[next_idx]  # type: ignore
-                else:
-                    conf_key = {
-                        task.TASK_ABILITY: task.CONF_ABILITY_ID,
-                        task.TASK_ARC: task.CONF_ARC_ID,
-                        task.TASK_CONSOLE: task.CONF_CONSOLE_ID,
-                    }.get(task_type)
-                    if conf_key:
-                        self.config[conf_key] = int(next_idx + 1)  # type: ignore
-            self.sync_config()
 
     def _open_activity(self):
         def action():
@@ -503,10 +492,6 @@ class DailyTask(NTEOneTimeTask, CinemaDateMixin, BaseNTETask):
         self.operate_click(0.600, 0.656)  # 确认
         return True
 
-    def run_coffee_task(self):
-        task: CoffeeTask = self.get_task_by_class(CoffeeTask)
-        return task.do_run()
-
     def claim_anomaly_furniture(self):
         """领取异象家具奖励"""
 
@@ -660,4 +645,4 @@ class DailyTask(NTEOneTimeTask, CinemaDateMixin, BaseNTETask):
     def run_gift_task(self):
         with self.set_working_task(GiftTask) as task:
             summary = task.run_gifts()
-        return len(summary['failed']) == 0
+        return len(summary["failed"]) == 0

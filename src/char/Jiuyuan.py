@@ -1,11 +1,5 @@
 from src.char.BaseChar import BaseChar
-from src.combat.planner import (
-    ActionTag,
-    CombatContext,
-    FieldPreference,
-    Role,
-    RoleProfile,
-)
+from src.combat.planner import CombatContext, Planner, RoleProfile
 
 
 class Jiuyuan(BaseChar):
@@ -13,12 +7,12 @@ class Jiuyuan(BaseChar):
         super().__init__(*args, **kwargs)
 
     def describe_role(self):
-        from src.char.Chiz import Chiz
+        from src.combat.team_strategies import is_chiz_abyss_team
 
         return RoleProfile(
-            role=Role.SUB_DPS,
-            field_preference=FieldPreference.SUB_DPS,
-            combat_start_priority=100 if Chiz.is_abyss_team(self.task.chars) else 0,
+            role=Planner.Role.SUB_DPS,
+            field_preference=Planner.FieldPreference.SUB_DPS,
+            combat_start_priority=100 if is_chiz_abyss_team(self.task.chars) else 0,
             max_field_time=1.0,
         )
 
@@ -26,7 +20,7 @@ class Jiuyuan(BaseChar):
         ultimate = self.click_ultimate_action()
         skill = self.click_skill_action()
         bullets = self.planner_action(
-            tags=ActionTag.DEFAULT_ACTION,
+            tags=Planner.ActionTag.DEFAULT_ACTION,
             execute=self.fire_bullets,
         )
 
@@ -51,7 +45,6 @@ class Jiuyuan(BaseChar):
 
     def has_bullets(self, box):
         pct = self.task.calculate_color_percentage(bullet_color, box)
-        # self.logger.debug(f"Jiuyuan has_bullets {pct}")
         return pct > 0.1
 
 

@@ -169,6 +169,23 @@ class CombatPlanner:
     def _apply_combat_policies(self) -> None:
         """让角色发布随队伍生命周期生效的长期 planner 策略。"""
 
+        from src.combat.team_strategies import (
+            publish_team_strategy,
+            team_strategy_source,
+        )
+
+        strategy_source = team_strategy_source(self.state.chars)
+        if strategy_source is not None:
+            context = CombatContext(
+                task=self.task,
+                _state=self.state,
+                current_char=strategy_source,
+            )
+            publish_team_strategy(context)
+            requests = context._consume_published_requests()
+            self._ensure_followup_sources(strategy_source, requests)
+            self.state.add_requests(requests)
+
         for char in self.state.chars:
             combat_policies = getattr(char, "combat_policies", None)
             if combat_policies is None:

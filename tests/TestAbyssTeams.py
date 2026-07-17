@@ -41,6 +41,7 @@ def make_team_char(task, char_cls, index, trace):
     char.is_dead = False
     char._test_skill_ready = True
     char._test_ultimate_ready = True
+    char._last_skill_kwargs = {}
 
     def skill_available(*args, **kwargs):
         return char._test_skill_ready
@@ -49,6 +50,7 @@ def make_team_char(task, char_cls, index, trace):
         return char._test_ultimate_ready
 
     def click_skill(*args, **kwargs):
+        char._last_skill_kwargs = kwargs
         trace.append((char.name, "E"))
         was_ready = char._test_skill_ready
         char._test_skill_ready = False
@@ -109,6 +111,18 @@ class TestBaicangAbyssTeam(unittest.TestCase):
 
         self.assertEqual(profile.field_preference, FieldPreference.SETUP_ONLY)
         self.assertEqual(profile.max_field_time, 0)
+
+    def test_sakiri_holds_grouping_skill_and_waits_for_settle(self):
+        self._perform_and_switch(self.sakiri)
+
+        self.assertEqual(
+            self.sakiri._last_skill_kwargs["down_time"],
+            Sakiri.SKILL_HOLD_DURATION,
+        )
+        self.assertEqual(
+            self.sakiri._last_skill_kwargs["post_sleep"],
+            Sakiri.SKILL_SETTLE_DURATION,
+        )
 
     def test_sakiri_actions_are_hidden_after_opener(self):
         current = self.sakiri

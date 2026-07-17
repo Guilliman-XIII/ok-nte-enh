@@ -56,6 +56,7 @@ class PlannerTestableBaicang:
         char._skill_calls = 0
         char._ultimate_calls = 0
         char._fallback_calls = 0
+        char._normal_attack_calls = 0
         char._burst_called = False
         char._post_skill_dodge_called = False
         char._skill_result = skill_result
@@ -94,6 +95,10 @@ class PlannerTestableBaicang:
             char._fallback_calls += 1
             char._fake_time += duration
 
+        def mock_normal_attack():
+            char._normal_attack_calls += 1
+            char._fake_time += 0.18
+
         def mock_perform_burst(context=None, first_skill_succeeded=False):
             char._burst_called = True
             char._fake_time += 0.1
@@ -117,6 +122,7 @@ class PlannerTestableBaicang:
         char.click_ultimate = mock_click_ultimate
         char.check_combat = mock_check_combat
         char.continues_right_click = mock_continues_right_click
+        char.normal_attack = mock_normal_attack
         char._perform_burst = mock_perform_burst
         char._post_skill_dodge = mock_post_skill_dodge
         char.task.click = MagicMock(side_effect=mock_click)
@@ -169,7 +175,7 @@ class TestBaicangPlannerIntegration(unittest.TestCase):
         )
         planner = self._planner([char])
         planner.perform_current_char(char)
-        self.assertGreater(char._fallback_calls, 0)
+        self.assertGreater(char._normal_attack_calls, 0)
 
     def test_post_skill_dodge_on_e_only(self):
         """skill 成功 + ultimate 失败 → _post_skill_dodge 被调用，不调用 fallback。"""
@@ -232,8 +238,8 @@ class TestBaicangPlannerIntegration(unittest.TestCase):
         planner = self._planner([char])
         # 不应抛异常
         planner.perform_current_char(char)
-        # fallback_dodge 应该被执行
-        self.assertGreater(char._fallback_calls, 0)
+        # The conservative V1 fallback should keep dealing normal-attack damage.
+        self.assertGreater(char._normal_attack_calls, 0)
 
 
 if __name__ == "__main__":

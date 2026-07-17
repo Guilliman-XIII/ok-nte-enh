@@ -23,7 +23,7 @@ class Daphneel(BaseChar):
     """
 
     MAX_FIELD_TIME = 0  # 禁止通用平A fallback；只有 Q/E 就绪时入场
-    ULT_BURST_DURATION = 6.0
+    ULT_BURST_DURATION = 1.5
     BURST_ATTACK_INTERVAL = 0.2
 
     def describe_role(self):

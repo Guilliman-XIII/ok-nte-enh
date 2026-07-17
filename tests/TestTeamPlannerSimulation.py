@@ -275,7 +275,7 @@ class TestTeamSimulation(unittest.TestCase):
         )
         self._set_current(chars, 3)
         planner.perform_current_char(chars[3])
-        self.assertGreater(chars[3].fallback_calls, 0)
+        self.assertGreater(chars[3].normal_attack_calls, 0)
 
     def test_adler_no_ultimate_on_skill_fail(self):
         """阿德勒 E 失败时不执行 Q。"""
