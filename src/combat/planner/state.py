@@ -162,6 +162,17 @@ class CombatState:
 
         active_requests = []
         for request in self.active_requests:
+            if (
+                request.return_to_source
+                and request_fulfilled(request)
+                and target_char.index == request._source
+            ):
+                if request_has_expiration(request):
+                    request.return_to_source = False
+                    self.lifecycle_requests.append(request)
+                request.close()
+                logger.info(f"return request fulfilled: {request.reason}")
+                continue
             if request_complete_switch(request, target_char):
                 request.finish(RequestStatus.FULFILLED)
                 request.close()

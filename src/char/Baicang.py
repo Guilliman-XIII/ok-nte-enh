@@ -66,9 +66,13 @@ class Baicang(BaseChar):
             execute=lambda ctx: self.click_skill(time_out=self.SKILL_SHORT_TIMEOUT),
             name="baicang_skill",
             reason="baicang skill",
+            can_execute=lambda _: self.skill_available(),
             priority_ready=lambda _: self.skill_available(),
         )
-        ultimate = self.click_ultimate_action(reason="baicang ultimate")
+        ultimate = self.click_ultimate_action(
+            reason="baicang ultimate",
+            can_execute=lambda _: self.ultimate_available(),
+        )
         fallback_dodge = self.planner_action(
             tags={ActionTag.DEFAULT_ACTION, ActionTag.DAMAGE},
             execute=lambda ctx: self._execute_fallback_dodge(),

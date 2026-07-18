@@ -12,6 +12,7 @@ from src.combat.planner import (
 
 _LOG_PREFIX = "[Daphneel]"
 SKILL_SHORT_TIMEOUT = 2.0
+SKILL_RETRY_DELAY = 4.0
 
 
 class Daphneel(BaseChar):
@@ -26,6 +27,10 @@ class Daphneel(BaseChar):
     ULT_BURST_DURATION = 1.5
     BURST_ATTACK_INTERVAL = 0.2
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._skill_retry_after = 0.0
+
     def describe_role(self):
         return RoleProfile(
             role=Role.SUB_DPS,
@@ -34,14 +39,18 @@ class Daphneel(BaseChar):
         )
 
     def combat_plan(self, context: CombatContext):
-        ultimate = self.click_ultimate_action(reason="daphneel ultimate (burst)")
+        ultimate = self.click_ultimate_action(
+            reason="daphneel ultimate (burst)",
+            can_execute=lambda _: self.ultimate_available(),
+        )
         skill = self.planner_action(
             tags={ActionTag.SKILL_ACTION},
             slot=ActionSlot.SKILL,
-            execute=lambda ctx: self.click_skill(time_out=SKILL_SHORT_TIMEOUT),
+            execute=self._execute_skill,
             name="daphneel_skill",
             reason="daphneel skill",
-            priority_ready=lambda _: self.skill_available(),
+            can_execute=lambda _: self._skill_ready(),
+            priority_ready=lambda _: self._skill_ready(),
         )
 
         def entry():
@@ -55,6 +64,16 @@ class Daphneel(BaseChar):
             self._request_baicang_return(context)
 
         return self.plan(ultimate, skill, entry=entry)
+
+    def _execute_skill(self, context: CombatContext = None) -> bool:
+        clicked = self.click_skill(time_out=SKILL_SHORT_TIMEOUT)
+        if not clicked:
+            self._skill_retry_after = self._now() + SKILL_RETRY_DELAY
+            self.logger.info(f"{_LOG_PREFIX} skill retry suppressed for {SKILL_RETRY_DELAY:.1f}s")
+        return clicked
+
+    def _skill_ready(self) -> bool:
+        return self._now() >= self._skill_retry_after and self.skill_available()
 
     def _request_baicang_return(self, context: CombatContext = None) -> None:
         from src.char.Baicang import Baicang
@@ -116,7 +135,7 @@ class Daphneel(BaseChar):
             return False
 
         self.logger.info(f"{_LOG_PREFIX} skill during burst")
-        self.click_skill(time_out=SKILL_SHORT_TIMEOUT)
+        self._execute_skill(context)
         return True
 
     def _now(self):

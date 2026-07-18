@@ -1335,9 +1335,62 @@ class TestCombatPlanner(unittest.TestCase):
         self.assertEqual(decision.target, source)
         self.assertIn("return to requester", decision.reason)
 
+        planner.record_switch(source)
+        self.assertEqual(planner.state.active_requests, [])
+
         planner.perform_current_char(source)
 
         self.assertEqual(planner.state.active_requests, [])
+
+    def test_return_to_source_beats_element_reaction_and_closes_on_switch(self):
+        source = FakeChar(0, "source", tags={ActionTag.ULTIMATE_ACTION})
+        recorder = FakeChar(1, "recorder", tags={ActionTag.SKILL_ACTION})
+        reaction = FakeChar(2, "reaction", tags={ActionTag.SUPPORT})
+        planner = self._planner([source, recorder, reaction])
+        planner.task.reaction_target = reaction
+        self._publish(
+            planner,
+            source,
+            lambda context: context.request_tags(
+                {ActionTag.SKILL_ACTION},
+                reason="record skill",
+                return_to_source=True,
+            ),
+        )
+
+        planner.perform_current_char(recorder)
+        decision = planner.decide_switch(recorder, free_intro=True)
+
+        self.assertEqual(decision.target, source)
+        self.assertIn("return to requester", decision.reason)
+        planner.record_switch(source)
+        self.assertEqual(planner.state.active_requests, [])
+
+    def test_return_to_source_waits_in_place_during_switch_cooldown(self):
+        source = FakeChar(0, "source", tags={ActionTag.ULTIMATE_ACTION})
+        recorder = FakeChar(1, "recorder", tags={ActionTag.SKILL_ACTION})
+        reaction = FakeChar(2, "reaction", tags={ActionTag.SUPPORT})
+        source.last_switch_time = 123
+        planner = self._planner([source, recorder, reaction])
+        planner.task.reaction_target = reaction
+        planner.task.time_elapsed_accounting_for_freeze = (
+            lambda start, intro_motion_freeze=False: 0 if start == 123 else 999
+        )
+        self._publish(
+            planner,
+            source,
+            lambda context: context.request_tags(
+                {ActionTag.SKILL_ACTION},
+                reason="record skill",
+                return_to_source=True,
+            ),
+        )
+
+        planner.perform_current_char(recorder)
+        decision = planner.decide_switch(recorder, free_intro=False)
+
+        self.assertEqual(decision.target, recorder)
+        self.assertIn("waiting return requester cooldown", decision.reason)
 
     def test_request_route_forces_declared_switch_order(self):
         hotori = FakeChar(0, "hotori", field_preference=FieldPreference.SETUP_ONLY)

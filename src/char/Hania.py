@@ -1,3 +1,5 @@
+import time
+
 from src.char.BaseChar import BaseChar
 from src.combat.planner import (
     ActionSlot,
@@ -10,6 +12,7 @@ from src.combat.planner import (
 
 _LOG_PREFIX = "[Hania]"
 SKILL_SHORT_TIMEOUT = 2.0
+SKILL_RETRY_DELAY = 4.0
 
 
 class Hania(BaseChar):
@@ -22,6 +25,10 @@ class Hania(BaseChar):
 
     MAX_FIELD_TIME = 0  # 禁止通用平A fallback
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._skill_retry_after = 0.0
+
     def describe_role(self):
         return RoleProfile(
             role=Role.SUB_DPS,
@@ -30,14 +37,18 @@ class Hania(BaseChar):
         )
 
     def combat_plan(self, context: CombatContext):
-        ultimate = self.click_ultimate_action(reason="hania ultimate (enhanced domain)")
+        ultimate = self.click_ultimate_action(
+            reason="hania ultimate (enhanced domain)",
+            can_execute=lambda _: self.ultimate_available(),
+        )
         skill = self.planner_action(
             tags={ActionTag.SKILL_ACTION},
             slot=ActionSlot.SKILL,
-            execute=lambda ctx: self.click_skill(time_out=SKILL_SHORT_TIMEOUT),
+            execute=self._execute_skill,
             name="hania_skill",
             reason="hania skill (deploy 咕咕子)",
-            priority_ready=lambda _: self.skill_available(),
+            can_execute=lambda _: self._skill_ready(),
+            priority_ready=lambda _: self._skill_ready(),
         )
 
         def entry():
@@ -52,6 +63,19 @@ class Hania(BaseChar):
             self._request_baicang_return(context)
 
         return self.plan(ultimate, skill, entry=entry)
+
+    def _execute_skill(self, context: CombatContext = None) -> bool:
+        clicked = self.click_skill(time_out=SKILL_SHORT_TIMEOUT)
+        if not clicked:
+            self._skill_retry_after = self._now() + SKILL_RETRY_DELAY
+            self.logger.info(f"{_LOG_PREFIX} skill retry suppressed for {SKILL_RETRY_DELAY:.1f}s")
+        return clicked
+
+    def _skill_ready(self) -> bool:
+        return self._now() >= self._skill_retry_after and self.skill_available()
+
+    def _now(self):
+        return time.monotonic()
 
     def _request_baicang_return(self, context: CombatContext = None) -> None:
         from src.char.Baicang import Baicang

@@ -30,6 +30,18 @@ def is_chiz_abyss_team(chars: Iterable) -> bool:
     return _exact_team(chars, (Chiz, Jiuyuan, Yi, Zero))
 
 
+def should_use_default_arc(char, chars: Iterable) -> bool:
+    chars = list(chars)
+    if is_baicang_abyss_team(chars):
+        from src.char.Baicang import Baicang
+        from src.char.Daphneel import Daphneel
+
+        return isinstance(char, (Baicang, Daphneel))
+    if is_chiz_abyss_team(chars):
+        return False
+    return True
+
+
 def team_strategy_source(chars):
     chars = list(chars)
     if is_baicang_abyss_team(chars):

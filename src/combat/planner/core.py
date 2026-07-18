@@ -633,6 +633,15 @@ class CombatPlanner:
             self._log_switch_decision(current_char, entry_request_decision)
             return entry_request_decision
 
+        return_decision = self._return_to_requester_decision(
+            current_char,
+            context,
+            has_intro,
+        )
+        if return_decision is not None:
+            self._log_switch_decision(current_char, return_decision)
+            return return_decision
+
         reaction_decision = self._element_reaction_decision(current_char, has_intro)
         if reaction_decision is not None:
             self._log_switch_decision(current_char, reaction_decision)
@@ -730,6 +739,45 @@ class CombatPlanner:
             ):
                 return True
         return False
+
+    def _return_to_requester_decision(
+        self,
+        current_char: "BaseChar",
+        context: CombatContext,
+        has_intro: bool,
+    ) -> SwitchDecision | None:
+        for request in list(context._state.active_requests):
+            if not request.return_to_source or not request_fulfilled(request):
+                continue
+            source = context._state.char_by_index(request._source)
+            if not self._can_switch_to(source):
+                request.finish(RequestStatus.EXPIRED)
+                request.close()
+                context._state.active_requests.remove(request)
+                logger.warning(
+                    "return request discarded because requester is unavailable: "
+                    f"{request.reason}"
+                )
+                continue
+            if source == current_char:
+                context._state.record_switch(source)
+                continue
+            if self._switch_on_cooldown(source, has_intro):
+                return SwitchDecision(
+                    target=current_char,
+                    reason=f"waiting return requester cooldown: {request.reason}",
+                    priority=999997,
+                    has_intro=has_intro,
+                    expected_entry=None,
+                )
+            return SwitchDecision(
+                target=source,
+                reason=f"return to requester: {request.reason}",
+                priority=999997,
+                has_intro=has_intro,
+                expected_entry=None,
+            )
+        return None
 
     def _skip_failed_optional_route_step(
         self,

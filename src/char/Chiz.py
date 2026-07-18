@@ -12,7 +12,7 @@ class Chiz(BaseChar):
     SKILL_CHAIN_MAX_USES = 3
     SKILL_CHAIN_NORMAL_ATTACKS = 2
     SKILL_CHAIN_ATTACK_INTERVAL = 0.35
-    SKILL_CHAIN_MIN_E_INTERVAL = 0.35
+    SKILL_CHAIN_MIN_E_INTERVAL = 0.6
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -70,7 +70,7 @@ class Chiz(BaseChar):
                 slot=Planner.ActionSlot.SKILL,
             ):
                 break
-            if not self.click_skill(time_out=self.SKILL_SHORT_TIMEOUT):
+            if not self._send_single_skill("chain", used + 1):
                 break
             used += 1
         self.logger.info(f"[Chiz] skill chain used {used}/{self.SKILL_CHAIN_MAX_USES}")
@@ -111,22 +111,26 @@ class Chiz(BaseChar):
                     or context.can_execute_action(self, slot=Planner.ActionSlot.SKILL)
                 )
             ):
-                if (
-                    self.is_current_char
-                    and not self.is_dead
-                    and self.skill_available()
-                    and (
-                        context is None
-                        or context.can_execute_action(self, slot=Planner.ActionSlot.SKILL)
-                    )
-                    and self.click_skill(time_out=self.SKILL_SHORT_TIMEOUT)
-                ):
+                if self._send_single_skill("ultimate", skill_uses + 1):
                     skill_uses += 1
                     last_skill_at = self._now()
+                    self.logger.info(
+                        f"[Chiz] ultimate skill gate accepted "
+                        f"(yellow={yellow_pct:.3f}, red={red_pct:.3f}, use={skill_uses})"
+                    )
             self.click_with_interval()
             self.sleep(0.1)
         self.logger.info(f"[Chiz] ultimate skill uses {skill_uses}/{self.SKILL_CHAIN_MAX_USES}")
         return self.is_current_char and not self.is_dead
+
+    def _send_single_skill(self, phase: str, use_number: int) -> bool:
+        if not self.is_current_char or self.is_dead:
+            return False
+        return bool(
+            self.send_skill_key(
+                action_name=("chiz_single_skill", self.index, phase, use_number),
+            )
+        )
 
     def _now(self):
         return time.monotonic()

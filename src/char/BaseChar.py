@@ -127,7 +127,12 @@ class BaseChar:
         self.switch_next_char()
 
     def _try_default_arc_click(self):
-        if self.planner_handles_arc:
+        from src.combat.team_strategies import should_use_default_arc
+
+        if self.planner_handles_arc or not should_use_default_arc(
+            self,
+            getattr(self.task, "chars", ()),
+        ):
             return
         now = time.time()
         entered_field = self._default_arc_switch_marker != self.last_switch_time

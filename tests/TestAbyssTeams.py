@@ -14,6 +14,7 @@ from src.char.Sakiri import Sakiri
 from src.char.Yi import Yi
 from src.char.Zero import Zero
 from src.combat.planner import ActionSlot, CombatPlanner, FieldPreference
+from src.combat.team_strategies import should_use_default_arc
 
 
 class FakeTask:
@@ -288,6 +289,15 @@ class TestChizAbyssTeam(unittest.TestCase):
 
         self.assertIs(decision.target, self.jiuyuan)
 
+    def test_jiuyuan_waits_for_grouping_to_settle(self):
+        self._perform_and_switch(self.jiuyuan)
+
+        self.assertEqual(Jiuyuan.SKILL_SETTLE_DURATION, 1.2)
+        self.assertEqual(
+            self.jiuyuan._last_skill_kwargs["post_sleep"],
+            Jiuyuan.SKILL_SETTLE_DURATION,
+        )
+
     def test_other_jiuyuan_team_keeps_default_start_priority(self):
         self.task.chars = [self.jiuyuan, self.zero]
         planner = CombatPlanner(self.task)
@@ -381,7 +391,7 @@ class TestChizBurstSafety(unittest.TestCase):
         char.click_with_interval = lambda *args, **kwargs: attacks.append("A")
         char.sleep = lambda duration, *args, **kwargs: sleeps.append(duration)
         char.skill_available = lambda *args, **kwargs: True
-        char.click_skill = lambda *args, **kwargs: skills.append("E") or True
+        char.send_skill_key = lambda *args, **kwargs: skills.append("E") or True
 
         self.assertTrue(char.perform_skill_chain())
         self.assertEqual(skills, ["E", "E", "E"])
@@ -405,7 +415,7 @@ class TestChizBurstSafety(unittest.TestCase):
 
         char._now = lambda: now[0]
         char.skill_available = lambda *args, **kwargs: True
-        char.click_skill = lambda *args, **kwargs: trace.append("E") or True
+        char.send_skill_key = lambda *args, **kwargs: trace.append("E") or True
         char.check_combat = lambda: None
         char.sleep = lambda duration, *args, **kwargs: now.__setitem__(0, now[0] + duration)
 
@@ -420,6 +430,45 @@ class TestChizBurstSafety(unittest.TestCase):
         self.assertEqual(trace, ["E", "E", "E"])
         self.assertGreaterEqual(attacks[0], 3)
         self.assertFalse(completed)
+
+
+class TestAbyssInputPolicies(unittest.TestCase):
+    def test_target_teams_only_send_arc_for_baicang_and_daphneel(self):
+        task = FakeTask()
+        trace = []
+        baicang_team = [
+            make_team_char(task, Baicang, 0, trace),
+            make_team_char(task, Daphneel, 1, trace),
+            make_team_char(task, Sakiri, 2, trace),
+            make_team_char(task, Hania, 3, trace),
+        ]
+        chiz_team = [
+            make_team_char(task, Chiz, 0, trace),
+            make_team_char(task, Zero, 1, trace),
+            make_team_char(task, Jiuyuan, 2, trace),
+            make_team_char(task, Yi, 3, trace),
+        ]
+
+        self.assertTrue(should_use_default_arc(baicang_team[0], baicang_team))
+        self.assertTrue(should_use_default_arc(baicang_team[1], baicang_team))
+        self.assertFalse(should_use_default_arc(baicang_team[2], baicang_team))
+        self.assertFalse(should_use_default_arc(baicang_team[3], baicang_team))
+        self.assertTrue(all(not should_use_default_arc(char, chiz_team) for char in chiz_team))
+
+    def test_failed_support_skill_is_suppressed_for_four_seconds(self):
+        for char_cls in (Hania, Daphneel):
+            with self.subTest(char_cls=char_cls.__name__):
+                task = FakeTask()
+                char = char_cls(task, 0, char_id=char_cls.__name__)
+                now = [10.0]
+                char._now = lambda: now[0]
+                char.skill_available = lambda *args, **kwargs: True
+                char.click_skill = lambda *args, **kwargs: False
+
+                self.assertFalse(char._execute_skill())
+                self.assertFalse(char._skill_ready())
+                now[0] = 14.0
+                self.assertTrue(char._skill_ready())
 
 
 if __name__ == "__main__":

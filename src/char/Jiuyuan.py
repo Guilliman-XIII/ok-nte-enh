@@ -3,6 +3,8 @@ from src.combat.planner import CombatContext, Planner, RoleProfile
 
 
 class Jiuyuan(BaseChar):
+    SKILL_SETTLE_DURATION = 1.2
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -18,7 +20,17 @@ class Jiuyuan(BaseChar):
 
     def combat_plan(self, context):
         ultimate = self.click_ultimate_action()
-        skill = self.click_skill_action()
+        skill = self.planner_action(
+            tags={Planner.ActionTag.SKILL_ACTION},
+            slot=Planner.ActionSlot.SKILL,
+            execute=lambda _: self.click_skill(
+                post_sleep=self.SKILL_SETTLE_DURATION,
+            ),
+            name=f"{self}_skill",
+            reason="Jiuyuan skill with grouping settle",
+            can_execute=lambda _: self.skill_available(),
+            priority_ready=lambda _: self.skill_available(),
+        )
         bullets = self.planner_action(
             tags=Planner.ActionTag.DEFAULT_ACTION,
             execute=self.fire_bullets,
