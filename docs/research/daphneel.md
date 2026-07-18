@@ -44,7 +44,8 @@
 
 | 参数 | 当前值 | 需要验证的问题 |
 | --- | --- | --- |
-| `ULT_BURST_DURATION` | 6.0 | 爆发窗口时长 |
+| `ULT_BURST_DURATION` | 1.5 | 当前自动化只保留短爆发，外部 6 秒描述尚未实机校准 |
 | `BURST_ATTACK_INTERVAL` | 0.2 | 普攻频率 |
 | `SKILL_SHORT_TIMEOUT` | 2.0 | 爆发内 E 超时 |
-| `MAX_FIELD_TIME` | 10.0 | 总入场时间 |
+| `MAX_FIELD_TIME` | 0 | 只有 Q/E 就绪时入场，不允许通用平 A 占场 |
+| `SKILL_REUSE_GUARD` | 6.0 | 覆盖录像中最长 5.69 秒假就绪窗口，非技能 CD 结论 |

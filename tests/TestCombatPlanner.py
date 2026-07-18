@@ -1041,6 +1041,33 @@ class TestCombatPlanner(unittest.TestCase):
         self.assertEqual(calls, ["first", "second"])
         self.assertEqual(result.name, "second")
 
+    def test_planner_checks_priority_input_immediately_before_action(self):
+        trace = []
+        task = FakeTask()
+        task.sleep_check = lambda: trace.append("checkpoint")
+        char = PublicApiChar(
+            task,
+            0,
+            "api_char",
+            lambda source, _: source.plan(
+                source.planner_action(
+                    tags={ActionTag.SKILL_ACTION},
+                    slot=ActionSlot.SKILL,
+                    execute=lambda context: trace.append("action") or True,
+                    name="checked_action",
+                    reason="checked action",
+                )
+            ),
+        )
+        task.chars = [char]
+        planner = CombatPlanner(task)
+        planner.reset([char])
+
+        result = planner.perform_current_char(char)
+
+        self.assertEqual(trace, ["checkpoint", "action"])
+        self.assertTrue(result)
+
     def test_basechar_helpers_are_public_planner_api(self):
         calls = []
         task = FakeTask()

@@ -6,7 +6,8 @@
 
 - 元素：咒系 (RED) [EXTERNAL: 3DM/米游社/豌豆荚]
 - 定位：主C (MAIN_DPS)
-- 核心机制：闪避(右键)攻击为核心输出
+- 外部攻略核心机制：闪避(右键)攻击为核心输出
+- 当前自动化基线：左键普通攻击 + E/Q；右键强化输出尚未通过实机校准
 
 ## 技能机制
 
@@ -46,9 +47,9 @@
 
 | 参数 | 当前值 | 需要验证的问题 |
 | --- | --- | --- |
-| `ULT_FIELD_DURATION` | 8.0 | Q 后有效输出窗口是否正好 8 秒 |
-| `DODGE_CLICK_INTERVAL` | 0.12 | 是否漏触发/过密/卡输入 |
-| `DODGE_SLICE_DURATION` | 0.3 | 检查频率是否影响输出 |
+| `ULT_FIELD_DURATION` | 12.0 | 当前保守输出窗口是否过长或过短 |
+| `NORMAL_ATTACK_INTERVAL` | 0.18 | 左键普通攻击是否稳定且不吞输入 |
+| `ATTACK_SLICE_DURATION` | 0.36 | 声音抢占检查频率是否足够 |
 | `SKILL_CHECK_INTERVAL` | 1.5 | 是否错过第二 E 窗口 |
 | `SKILL_READY_STREAK_THRESHOLD` | 3 | 是否能过滤 UI 单帧误判 |
 | `SECOND_SKILL_MODE` | observe | 何时切到 execute |

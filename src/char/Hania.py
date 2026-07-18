@@ -13,6 +13,7 @@ from src.combat.planner import (
 _LOG_PREFIX = "[Hania]"
 SKILL_SHORT_TIMEOUT = 2.0
 SKILL_RETRY_DELAY = 4.0
+SKILL_REUSE_GUARD = 8.0
 
 
 class Hania(BaseChar):
@@ -27,7 +28,7 @@ class Hania(BaseChar):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._skill_retry_after = 0.0
+        self._skill_ready_after = 0.0
 
     def describe_role(self):
         return RoleProfile(
@@ -66,13 +67,18 @@ class Hania(BaseChar):
 
     def _execute_skill(self, context: CombatContext = None) -> bool:
         clicked = self.click_skill(time_out=SKILL_SHORT_TIMEOUT)
-        if not clicked:
-            self._skill_retry_after = self._now() + SKILL_RETRY_DELAY
+        if clicked:
+            self._skill_ready_after = self._now() + SKILL_REUSE_GUARD
+            self.logger.info(
+                f"{_LOG_PREFIX} skill reuse guarded for {SKILL_REUSE_GUARD:.1f}s"
+            )
+        else:
+            self._skill_ready_after = self._now() + SKILL_RETRY_DELAY
             self.logger.info(f"{_LOG_PREFIX} skill retry suppressed for {SKILL_RETRY_DELAY:.1f}s")
         return clicked
 
     def _skill_ready(self) -> bool:
-        return self._now() >= self._skill_retry_after and self.skill_available()
+        return self._now() >= self._skill_ready_after and self.skill_available()
 
     def _now(self):
         return time.monotonic()
@@ -88,4 +94,4 @@ class Hania(BaseChar):
 
     def on_combat_end(self, chars):
         """战后清理。不用于战斗内切人。"""
-        pass
+        self._skill_ready_after = 0.0

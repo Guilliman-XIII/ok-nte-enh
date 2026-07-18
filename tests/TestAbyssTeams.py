@@ -7,7 +7,9 @@ from src.char.BaseChar import Element
 from src.char.CharFactory import char_dict
 from src.char.Chiz import Chiz
 from src.char.custom.CustomCharManager import CustomCharManager
+from src.char.Daphneel import SKILL_REUSE_GUARD as DAPHNEEL_SKILL_REUSE_GUARD
 from src.char.Daphneel import Daphneel
+from src.char.Hania import SKILL_REUSE_GUARD as HANIA_SKILL_REUSE_GUARD
 from src.char.Hania import Hania
 from src.char.Jiuyuan import Jiuyuan
 from src.char.Sakiri import Sakiri
@@ -489,6 +491,34 @@ class TestAbyssInputPolicies(unittest.TestCase):
                 self.assertFalse(char._skill_ready())
                 now[0] = 14.0
                 self.assertTrue(char._skill_ready())
+
+    def test_successful_support_skill_is_guarded_until_effect_can_expire(self):
+        guards = {
+            Hania: HANIA_SKILL_REUSE_GUARD,
+            Daphneel: DAPHNEEL_SKILL_REUSE_GUARD,
+        }
+        for char_cls, guard in guards.items():
+            with self.subTest(char_cls=char_cls.__name__):
+                task = FakeTask()
+                char = char_cls(task, 0, char_id=char_cls.__name__)
+                now = [10.0]
+                char._now = lambda: now[0]
+                char.skill_available = lambda *args, **kwargs: True
+                char.click_skill = lambda *args, **kwargs: True
+
+                self.assertTrue(char._execute_skill())
+                self.assertFalse(char._skill_ready())
+                now[0] = 10.0 + guard
+                self.assertTrue(char._skill_ready())
+
+    def test_combat_end_clears_support_skill_guard(self):
+        for char_cls in (Hania, Daphneel):
+            with self.subTest(char_cls=char_cls.__name__):
+                task = FakeTask()
+                char = char_cls(task, 0, char_id=char_cls.__name__)
+                char._skill_ready_after = 99.0
+                char.on_combat_end([])
+                self.assertEqual(char._skill_ready_after, 0.0)
 
 
 if __name__ == "__main__":

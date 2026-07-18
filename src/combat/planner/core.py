@@ -573,6 +573,11 @@ class CombatPlanner:
                 False,
             )
 
+        task = getattr(current_char, "task", None)
+        checkpoint = getattr(task, "sleep_check", None)
+        if callable(checkpoint):
+            checkpoint()
+
         action_name = action.display_name()
         logger.info(
             f"planner action {current_char} -> {action_name}, "
