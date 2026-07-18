@@ -115,6 +115,7 @@ class TestBaicangAbyssTeam(unittest.TestCase):
     def test_sakiri_holds_grouping_skill_and_waits_for_settle(self):
         self._perform_and_switch(self.sakiri)
 
+        self.assertEqual(Sakiri.SKILL_SETTLE_DURATION, 1.2)
         self.assertEqual(
             self.sakiri._last_skill_kwargs["down_time"],
             Sakiri.SKILL_HOLD_DURATION,
@@ -231,15 +232,15 @@ class TestChizAbyssTeam(unittest.TestCase):
     def setUp(self):
         self.trace = []
         self.task = FakeTask()
-        self.jiuyuan = make_team_char(self.task, Jiuyuan, 0, self.trace)
-        self.yi = make_team_char(self.task, Yi, 1, self.trace)
-        self.zero = make_team_char(self.task, Zero, 2, self.trace)
-        self.chiz = make_team_char(self.task, Chiz, 3, self.trace)
+        self.chiz = make_team_char(self.task, Chiz, 0, self.trace)
+        self.zero = make_team_char(self.task, Zero, 1, self.trace)
+        self.jiuyuan = make_team_char(self.task, Jiuyuan, 2, self.trace)
+        self.yi = make_team_char(self.task, Yi, 3, self.trace)
         self.jiuyuan.element = Element.GREEN
         self.yi.element = Element.YELLOW
         self.zero.element = Element.WHITE
         self.chiz.element = Element.WHITE
-        self.task.chars = [self.jiuyuan, self.yi, self.zero, self.chiz]
+        self.task.chars = [self.chiz, self.zero, self.jiuyuan, self.yi]
         self.planner = CombatPlanner(self.task)
         self.planner.reset(self.task.chars)
 

@@ -51,7 +51,7 @@ switch request: return Baicang after Daphneel burst
 
 ## 3. 第二队：小吱盈蓄队
 
-阵容成员：`小吱 + 九原 + 翳 + 零`。Planner 按角色类型协作，但严格预设会记录并核对当前槽位顺序。
+实际槽位：`小吱 + 零 + 九原 + 翳（狼叔）`。Planner 按角色类型协作，但严格预设会记录并核对当前槽位顺序。
 
 预期关键顺序：
 

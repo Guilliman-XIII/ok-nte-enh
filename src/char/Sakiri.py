@@ -4,7 +4,7 @@ from src.combat.planner import Planner, RoleProfile
 
 class Sakiri(BaseChar):
     SKILL_HOLD_DURATION = 0.8
-    SKILL_SETTLE_DURATION = 0.7
+    SKILL_SETTLE_DURATION = 1.2
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
