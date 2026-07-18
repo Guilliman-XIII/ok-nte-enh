@@ -13,8 +13,7 @@ class TestAbyssLogAnalyzer(unittest.TestCase):
                 "tags [], reason test",
                 "2026-07-16 10:00:01,000 INFO planner:strict route skips optional step: "
                 "Baicang abyss opener / Hania Q",
-                "2026-07-16 10:00:02,000 INFO planner:strict route fulfilled: "
-                "Baicang abyss opener",
+                "2026-07-16 10:00:02,000 INFO planner:strict route fulfilled: Baicang abyss opener",
                 "2026-07-16 10:00:02,100 INFO planner:planner switch Daphneel -> Baicang, "
                 "priority 1, reason switch request: return Baicang",
             ]
@@ -30,13 +29,13 @@ class TestAbyssLogAnalyzer(unittest.TestCase):
         traces = parse_abyss_traces(
             [
                 "2026-07-16 10:00:00,000 INFO planner:strict route locked: "
-                "Chiz Yingxu abyss opener / Jiuyuan E",
+                "Chiz Yingxu abyss cycle / Jiuyuan reaction",
                 "2026-07-16 10:00:01,000 INFO planner:strict route completed entry reaction "
-                "Zero -> Jiuyuan: Chiz Yingxu abyss opener / Creation",
+                "Chiz -> Jiuyuan: Chiz Yingxu abyss cycle / Creation",
                 "2026-07-16 10:00:02,000 INFO planner:strict route completed entry reaction "
-                "Zero -> Yi: Chiz Yingxu abyss opener / Delay",
+                "Zero -> Yi: Chiz Yingxu abyss cycle / Delay",
                 "2026-07-16 10:00:03,000 INFO planner:strict route fulfilled: "
-                "Chiz Yingxu abyss opener",
+                "Chiz Yingxu abyss cycle",
                 "2026-07-16 10:00:03,100 INFO planner:strict route locked: "
                 "Chiz Yingxu abyss cycle / Zero Q",
             ]
@@ -44,10 +43,39 @@ class TestAbyssLogAnalyzer(unittest.TestCase):
 
         self.assertEqual(len(traces), 2)
         self.assertEqual(traces[0].status, "fulfilled")
-        self.assertEqual(traces[0].reaction_sequence(), ["Zero->Jiuyuan", "Zero->Yi"])
+        self.assertEqual(traces[0].reaction_sequence(), ["Chiz->Jiuyuan", "Zero->Yi"])
+        self.assertEqual(traces[0].diagnosis(), [])
         self.assertEqual(traces[1].route, "Chiz Yingxu abyss cycle")
         self.assertIn("route status is pending", traces[1].diagnosis())
-        self.assertIn("missing reaction Zero->Jiuyuan", traces[1].diagnosis())
+        self.assertIn("missing reaction Chiz->Jiuyuan", traces[1].diagnosis())
+
+    def test_reports_zero_field_wait_and_repeated_unavailable_actions(self):
+        lines = [
+            "2026-07-16 10:00:00,000 INFO planner:strict route locked: "
+            "Chiz Yingxu abyss opener / Zero setup",
+            "2026-07-16 10:00:00,100 INFO planner:strict route completed entry reaction "
+            "Chiz -> Jiuyuan: Chiz Yingxu abyss opener / Creation",
+            "2026-07-16 10:00:00,200 INFO planner:strict route completed entry reaction "
+            "Zero -> Yi: Chiz Yingxu abyss opener / Delay",
+        ]
+        lines.extend(
+            "2026-07-16 10:00:01,000 INFO planner:planner action "
+            "Zero -> Zero_ultimate, tags [], reason unavailable"
+            for _ in range(10)
+        )
+        lines.extend(
+            "2026-07-16 10:00:02,000 INFO planner:planner keep Zero, priority 1, "
+            "reason strict route waiting entry reaction: cycle / Yi"
+            for _ in range(5)
+        )
+        lines.append(
+            "2026-07-16 10:00:03,000 INFO planner:strict route fulfilled: Chiz Yingxu abyss opener"
+        )
+
+        diagnosis = parse_abyss_traces(lines)[0].diagnosis()
+
+        self.assertIn("Zero:Zero_ultimate retried 10 times", diagnosis)
+        self.assertIn("Zero held field for 5 strict-route wait ticks", diagnosis)
 
     def test_expired_route_is_reported(self):
         traces = parse_abyss_traces(

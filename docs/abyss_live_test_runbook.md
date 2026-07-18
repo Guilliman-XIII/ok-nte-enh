@@ -13,8 +13,8 @@
 6. 使用默认战斗键位；保持游戏窗口可见且不最小化。
 7. 开启现有声音闪避/反击；第一轮不调整声音阈值。
 8. 开启屏幕录制，保留游戏声音；不要把录屏、截图或本地日志提交到 Git。
-9. 第一轮选“敌人能存活 40 秒以上、队伍不容易暴毙”的中等压力多目标层。过低层会在第二次零 E
-   前结束，过高层会把生存问题和轮转问题混在一起。
+9. 第一轮选“敌人能存活 40 秒以上、队伍不容易暴毙”的中等压力多目标层。过低层看不到小吱
+   首轮爆发后的完整环合循环，过高层会把生存问题和轮转问题混在一起。
 
 武装只在四槽校验通过并成功构造角色后消费。出现“队伍预设校验失败”时，自动战斗不会降级使用上次
 队伍或通用脚本，武装状态会保留；修正阵容/特征后可再次触发检测。切换第二队时必须选择并武装第二
@@ -59,25 +59,30 @@ switch request: return Baicang after Daphneel burst
 Jiuyuan_skill
 Zero_ultimate                  # 无能量时允许跳过
 Zero_skill
-strict route completed entry reaction Zero -> Jiuyuan
+return Chiz                    # 不在零场上等待第二次 E
+Chiz_ultimate
+Chiz_skill_chain               # 最多三次 E，每段前穿插短普攻
+strict route completed entry reaction Chiz -> Jiuyuan
 Jiuyuan_ultimate               # 不可用时允许跳过
-Zero_skill                     # 第二次，可能需要等待冷却
+[Zero_ultimate]                # 不可用时允许跳过
+Zero_skill
 strict route completed entry reaction Zero -> Yi
 Yi_ultimate                    # 无能量时允许跳过
 Yi_skill
-Chiz_ultimate
-strict route fulfilled: Chiz Yingxu abyss opener
+[Jiuyuan_skill]                # 可用时重新聚怪
+return Chiz
+strict route fulfilled: Chiz Yingxu abyss cycle
 ```
 
 验收观察：
 
-- 第一次零 E 后必须环合切九原，第二次零 E 后必须环合切翳。
-- 等第二次零 E 时可以短暂普攻，但不能高速乱切或永久卡住。
-- 翳完成 Q/E 后立即让出场地；小吱应以 Q 接管并进入爆发。
-- 小吱大招窗口最多自动尝试一次 E；换人、死亡或脱战时立刻退出循环。
+- 首轮零 E 后应立即回小吱；零从成功 E 到离场不应继续平 A 超过约 3 秒（不计 Q 动画）。
+- 小吱应先完成 Q、最多三次 E 和持续站场，再以 `小吱 -> 九原` 触发第一次创生环合。
+- 九原短切后由零 E 铺垫并以 `零 -> 翳` 触发第二次延滞环合。
+- 翳完成 Q/E 后立即让出场地，经可选九原 E 聚怪后回小吱。
+- 小吱每轮最多自动尝试三次 E；换人、死亡、脱战或技能不可用时立刻停止技能链。
 - 35 秒后仍未完成时路线必须解锁，不能继续强制等待。
-- 小吱完整爆发后应出现 `strict route locked: Chiz Yingxu abyss cycle`，并重复两次零 E 的环合轴；
-  后续循环不再强制九原先开场聚怪。
+- 不应再出现零 Q/E 每秒大量重复尝试，或 `strict route waiting while keeping Zero on field` 连续五次以上。
 
 ## 4. 首轮回传材料
 
@@ -108,6 +113,6 @@ strict route fulfilled: Chiz Yingxu abyss opener
   `custom_chars/db.json.schema-v5.bak`。v6 数据不支持再用旧版 OKNTE 保存。
 - 白藏队当前是哈妮娅竞速版，没有按血线自动切法蒂娅。
 - 白藏首版采用稳定平 A，不启用尚未实机验证的 Shift 移动攻击；白藏队首轮后由通用 Planner
-  调度。小吱队会在每次完整 Q 爆发后自动重建双环合轴。
+  调度。小吱队首轮快速回主 C，随后由小吱站场触发双环合循环。
 - 攻略资料只用于提出待验证假设。实现依据仍以游戏实机、OKNTE 日志和用户录屏为准。
 - 自动化存在游戏账号处罚风险；继续沿用 OKNTE README 的风险边界，不进行注入或内存读取。

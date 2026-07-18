@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -14,6 +15,7 @@ ACTION_PATTERN = re.compile(r"planner action (?P<char>\w+) -> (?P<action>[^,]+)"
 SWITCH_PATTERN = re.compile(
     r"planner switch (?P<source>\w+) -> (?P<target>\w+).+?reason (?P<reason>.+)$"
 )
+KEEP_PATTERN = re.compile(r"planner keep (?P<char>\w+).+?reason (?P<reason>.+)$")
 REACTION_PATTERN = re.compile(
     r"strict route completed entry reaction (?P<source>\w+) -> (?P<target>\w+):"
 )
@@ -59,8 +61,20 @@ class AbyssTrace:
                 issues.append("no Daphneel->Baicang return switch recorded")
 
         if "Chiz Yingxu abyss" in self.route:
+            action_counts = Counter(self.action_sequence())
+            for action in ("Zero:Zero_skill", "Zero:Zero_ultimate", "Chiz:Chiz_ultimate"):
+                if action_counts[action] >= 10:
+                    issues.append(f"{action} retried {action_counts[action]} times")
+
+            zero_waits = sum(
+                event.kind == "wait" and event.detail.startswith("Zero:") for event in self.events
+            )
+            if zero_waits >= 5:
+                issues.append(f"Zero held field for {zero_waits} strict-route wait ticks")
+
+        if "Chiz Yingxu abyss cycle" in self.route:
             reactions = set(self.reaction_sequence())
-            for required in ("Zero->Jiuyuan", "Zero->Yi"):
+            for required in ("Chiz->Jiuyuan", "Zero->Yi"):
                 if required not in reactions:
                     issues.append(f"missing reaction {required}")
 
@@ -120,8 +134,7 @@ def parse_abyss_traces(lines: list[str]) -> list[AbyssTrace]:
         switch = SWITCH_PATTERN.search(line)
         if switch:
             detail = (
-                f"{switch.group('source')}->{switch.group('target')} "
-                f"({switch.group('reason')})"
+                f"{switch.group('source')}->{switch.group('target')} ({switch.group('reason')})"
             )
             current.add(timestamp, "switch", detail)
             if (
@@ -131,6 +144,15 @@ def parse_abyss_traces(lines: list[str]) -> list[AbyssTrace]:
             ):
                 traces.append(current)
                 current = None
+            continue
+
+        keep = KEEP_PATTERN.search(line)
+        if keep and "strict route" in keep.group("reason"):
+            current.add(
+                timestamp,
+                "wait",
+                f"{keep.group('char')}:{keep.group('reason')}",
+            )
             continue
 
         if "strict route skips" in line:

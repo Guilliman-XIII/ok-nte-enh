@@ -9,6 +9,8 @@ class Chiz(BaseChar):
     ABYSS_ROUTE_TIMEOUT = 35.0
     ULT_FIELD_DURATION = 8.0
     SKILL_SHORT_TIMEOUT = 2.0
+    SKILL_CHAIN_MAX_USES = 3
+    SKILL_CHAIN_ATTACK_GAP = 0.5
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -31,8 +33,18 @@ class Chiz(BaseChar):
         )
 
     def combat_plan(self, context):
-        ultimate = self.click_ultimate_action()
-        skill = self.click_skill_action()
+        ultimate = self.click_ultimate_action(
+            can_execute=lambda _: self.ultimate_available(),
+        )
+        skill = self.planner_action(
+            tags=Planner.ActionTag.SKILL_ACTION,
+            slot=Planner.ActionSlot.SKILL,
+            execute=self.perform_skill_chain,
+            name="Chiz_skill_chain",
+            reason="chiz three-stage skill chain",
+            can_execute=lambda _: self.skill_available(),
+            priority_ready=lambda _: self.skill_available(),
+        )
 
         def entry():
             ultimate_result = yield ultimate
@@ -44,6 +56,25 @@ class Chiz(BaseChar):
 
         return self.plan(ultimate, skill, entry=entry)
 
+    def perform_skill_chain(self, context: CombatContext = None) -> bool:
+        used = 0
+        for _ in range(self.SKILL_CHAIN_MAX_USES):
+            if not self.is_current_char or self.is_dead:
+                break
+            self.continues_normal_attack(self.SKILL_CHAIN_ATTACK_GAP)
+            if not self.is_current_char or self.is_dead or not self.skill_available():
+                break
+            if context is not None and not context.can_execute_action(
+                self,
+                slot=Planner.ActionSlot.SKILL,
+            ):
+                break
+            if not self.click_skill(time_out=self.SKILL_SHORT_TIMEOUT):
+                break
+            used += 1
+        self.logger.info(f"[Chiz] skill chain used {used}/{self.SKILL_CHAIN_MAX_USES}")
+        return used > 0
+
     def perform_in_ult(self, context: CombatContext = None) -> bool:
         box = self.task.box_of_screen(0.487, 0.775, 0.514, 0.798, name="percentage")
         self.task.wait_ocr(
@@ -53,7 +84,7 @@ class Chiz(BaseChar):
             raise_if_not_found=False,
         )
         deadline = self._now() + self.ULT_FIELD_DURATION
-        skill_attempted = False
+        skill_uses = 0
         while self._now() < deadline:
             if not self.is_current_char or self.is_dead:
                 return False
@@ -61,7 +92,7 @@ class Chiz(BaseChar):
             red_pct = self.task.calculate_color_percentage(red_pct_color, box)
             yellow_pct = self.task.calculate_color_percentage(yellow_pct_color, box)
             if (
-                not skill_attempted
+                skill_uses < self.SKILL_CHAIN_MAX_USES
                 and yellow_pct > red_pct
                 and self.skill_available()
                 and (
@@ -69,10 +100,21 @@ class Chiz(BaseChar):
                     or context.can_execute_action(self, slot=Planner.ActionSlot.SKILL)
                 )
             ):
-                skill_attempted = True
-                self.click_skill(time_out=self.SKILL_SHORT_TIMEOUT)
+                self.continues_normal_attack(self.SKILL_CHAIN_ATTACK_GAP)
+                if (
+                    self.is_current_char
+                    and not self.is_dead
+                    and self.skill_available()
+                    and (
+                        context is None
+                        or context.can_execute_action(self, slot=Planner.ActionSlot.SKILL)
+                    )
+                    and self.click_skill(time_out=self.SKILL_SHORT_TIMEOUT)
+                ):
+                    skill_uses += 1
             self.click_with_interval()
             self.sleep(0.1)
+        self.logger.info(f"[Chiz] ultimate skill uses {skill_uses}/{self.SKILL_CHAIN_MAX_USES}")
         return self.is_current_char and not self.is_dead
 
     def _now(self):

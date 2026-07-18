@@ -15,9 +15,13 @@ class Zero(BaseChar):
 
     def combat_plan(self, context):
         return self.plan(
-            self.click_ultimate_action(),
+            self.click_ultimate_action(
+                can_execute=lambda _: self.ultimate_available(),
+            ),
             self.click_skill_action(
-                can_execute=self.should_use_skill,
+                can_execute=lambda current_context: (
+                    self.skill_available() and self.should_use_skill(current_context)
+                ),
             ),
         )
 

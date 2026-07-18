@@ -8,8 +8,7 @@ from src.combat.planner.types import FollowupStep, Planner
 def _exact_team(chars, required_types) -> bool:
     chars = list(chars)
     return len(chars) == len(required_types) and all(
-        sum(isinstance(char, char_type) for char in chars) == 1
-        for char_type in required_types
+        sum(isinstance(char, char_type) for char in chars) == 1 for char_type in required_types
     )
 
 
@@ -128,18 +127,14 @@ def request_chiz_route(context: CombatContext, opener: bool) -> None:
     yi = next(char for char in context.chars if isinstance(char, Yi))
     zero = next(char for char in context.chars if isinstance(char, Zero))
 
-    steps = []
     if opener:
-        steps.append(
+        steps = [
             FollowupStep.for_action(
                 jiuyuan,
                 Planner.ActionSlot.SKILL,
                 reason="Jiuyuan groups enemies for Yingxu",
                 optional=True,
-            )
-        )
-    steps.extend(
-        [
+            ),
             FollowupStep.for_action(
                 zero,
                 Planner.ActionSlot.ULTIMATE,
@@ -149,11 +144,14 @@ def request_chiz_route(context: CombatContext, opener: bool) -> None:
             FollowupStep.for_action(
                 zero,
                 Planner.ActionSlot.SKILL,
-                reason="Zero fills the first element ring",
+                reason="Zero primes the first element ring",
             ),
+        ]
+    else:
+        steps = [
             FollowupStep.for_entry_reaction(
                 jiuyuan,
-                reason="Jiuyuan triggers Creation",
+                reason="Jiuyuan triggers Creation after Chiz field time",
             ),
             FollowupStep.for_action(
                 jiuyuan,
@@ -163,8 +161,14 @@ def request_chiz_route(context: CombatContext, opener: bool) -> None:
             ),
             FollowupStep.for_action(
                 zero,
+                Planner.ActionSlot.ULTIMATE,
+                reason="Zero refreshes light setup",
+                optional=True,
+            ),
+            FollowupStep.for_action(
+                zero,
                 Planner.ActionSlot.SKILL,
-                reason="Zero fills the second element ring",
+                reason="Zero primes the aspect reaction",
             ),
             FollowupStep.for_entry_reaction(
                 yi,
@@ -182,16 +186,16 @@ def request_chiz_route(context: CombatContext, opener: bool) -> None:
                 reason="Yi applies aspect setup",
             ),
             FollowupStep.for_action(
-                chiz,
-                Planner.ActionSlot.ULTIMATE,
-                reason="Chiz spends Yingxu in the damage window",
+                jiuyuan,
+                Planner.ActionSlot.SKILL,
+                reason="Jiuyuan regroups before Chiz returns",
+                optional=True,
             ),
         ]
-    )
     route_name = "opener" if opener else "cycle"
     context.request_route(
         steps,
         reason=f"Chiz Yingxu abyss {route_name}",
         until=_timeout_after(lambda: chiz.ABYSS_ROUTE_TIMEOUT),
-        return_to_source=False,
+        return_to_source=True,
     )
