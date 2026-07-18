@@ -61,7 +61,7 @@ Zero_ultimate                  # 无能量时允许跳过
 Zero_skill
 return Chiz                    # 不在零场上等待第二次 E
 Chiz_ultimate
-Chiz_skill_chain               # 最多三次 E，每段前穿插短普攻
+Chiz_skill_chain               # 最多三次 E；非大招期每段前两次平 A
 strict route completed entry reaction Chiz -> Jiuyuan
 Jiuyuan_ultimate               # 不可用时允许跳过
 [Zero_ultimate]                # 不可用时允许跳过
@@ -81,6 +81,12 @@ strict route fulfilled: Chiz Yingxu abyss cycle
 - 九原短切后由零 E 铺垫并以 `零 -> 翳` 触发第二次延滞环合。
 - 翳完成 Q/E 后立即让出场地，经可选九原 E 聚怪后回小吱。
 - 小吱每轮最多自动尝试三次 E；换人、死亡、脱战或技能不可用时立刻停止技能链。
+- 小吱大招期间继续按金谷颜色判断 E 时机；非大招期使用“两次平 A -> 一次 E”的保守规则，
+  不允许连续猛点 E。
+- strict route 等待环合入场时必须执行可被声音模块打断的 0.15 秒短平 A；不得高频重复 Q/R。
+- 通用 R 仅在角色切入时尝试一次；同一角色持续站场时，两次 R 至少间隔 20 秒。
+- 每次 `Sound action` 触发后都应看到实际 `Executing dodge/counter attack`；出现
+  `Sound action discarded after timeout` 即判为失败。
 - 35 秒后仍未完成时路线必须解锁，不能继续强制等待。
 - 不应再出现零 Q/E 每秒大量重复尝试，或 `strict route waiting while keeping Zero on field` 连续五次以上。
 

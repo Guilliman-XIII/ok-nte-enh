@@ -84,6 +84,9 @@ class AbyssTrace:
         )
         if wait_count >= 20:
             issues.append(f"strict route waited {wait_count} action ticks")
+        sound_timeouts = sum(event.kind == "sound_timeout" for event in self.events)
+        if sound_timeouts:
+            issues.append(f"{sound_timeouts} sound actions discarded after timeout")
         return issues
 
 
@@ -173,6 +176,10 @@ def parse_abyss_traces(lines: list[str]) -> list[AbyssTrace]:
 
         if "Combat sleep interrupted by sound action" in line:
             current.add(timestamp, "sound", "combat yielded to sound action")
+            continue
+
+        if "Sound action discarded after timeout" in line:
+            current.add(timestamp, "sound_timeout", "sound action timed out")
             continue
 
         if "Executing dodge" in line or "Executing counter attack" in line:

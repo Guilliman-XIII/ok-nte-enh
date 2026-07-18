@@ -376,14 +376,17 @@ class TestChizBurstSafety(unittest.TestCase):
         char.is_current_char = True
         char.is_dead = False
         attacks = []
+        sleeps = []
         skills = []
-        char.continues_normal_attack = lambda duration: attacks.append(duration)
+        char.click_with_interval = lambda *args, **kwargs: attacks.append("A")
+        char.sleep = lambda duration, *args, **kwargs: sleeps.append(duration)
         char.skill_available = lambda *args, **kwargs: True
         char.click_skill = lambda *args, **kwargs: skills.append("E") or True
 
         self.assertTrue(char.perform_skill_chain())
         self.assertEqual(skills, ["E", "E", "E"])
-        self.assertEqual(attacks, [0.5, 0.5, 0.5])
+        self.assertEqual(attacks, ["A"] * 6)
+        self.assertEqual(sleeps, [0.35] * 6)
 
     def test_burst_uses_skill_at_most_three_times_and_stops_when_switched_out(self):
         task = FakeTask()
@@ -399,26 +402,23 @@ class TestChizBurstSafety(unittest.TestCase):
         char.is_dead = False
         now = [0.0]
         attacks = [0]
-        gaps = []
 
         char._now = lambda: now[0]
         char.skill_available = lambda *args, **kwargs: True
         char.click_skill = lambda *args, **kwargs: trace.append("E") or True
-        char.continues_normal_attack = lambda duration: gaps.append(duration)
         char.check_combat = lambda: None
         char.sleep = lambda duration, *args, **kwargs: now.__setitem__(0, now[0] + duration)
 
         def attack_once():
             attacks[0] += 1
-            if attacks[0] == 3:
+            if len(trace) == 3:
                 char.is_current_char = False
 
         char.click_with_interval = attack_once
         completed = char.perform_in_ult()
 
         self.assertEqual(trace, ["E", "E", "E"])
-        self.assertEqual(gaps, [0.5, 0.5, 0.5])
-        self.assertEqual(attacks[0], 3)
+        self.assertGreaterEqual(attacks[0], 3)
         self.assertFalse(completed)
 
 

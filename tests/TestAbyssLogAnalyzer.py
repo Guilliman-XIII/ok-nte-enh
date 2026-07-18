@@ -69,6 +69,10 @@ class TestAbyssLogAnalyzer(unittest.TestCase):
             for _ in range(5)
         )
         lines.append(
+            "2026-07-16 10:00:02,500 INFO SoundCombatContext:"
+            "Sound action discarded after timeout: dodge"
+        )
+        lines.append(
             "2026-07-16 10:00:03,000 INFO planner:strict route fulfilled: Chiz Yingxu abyss opener"
         )
 
@@ -76,6 +80,7 @@ class TestAbyssLogAnalyzer(unittest.TestCase):
 
         self.assertIn("Zero:Zero_ultimate retried 10 times", diagnosis)
         self.assertIn("Zero held field for 5 strict-route wait ticks", diagnosis)
+        self.assertIn("1 sound actions discarded after timeout", diagnosis)
 
     def test_expired_route_is_reported(self):
         traces = parse_abyss_traces(

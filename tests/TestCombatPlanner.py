@@ -1,5 +1,6 @@
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from src.char.BaseChar import BaseChar
 from src.combat.planner import (
@@ -1087,6 +1088,28 @@ class TestCombatPlanner(unittest.TestCase):
         self.assertEqual(result.tags, {ActionTag.ARC_ACTION})
         self.assertEqual(char.arc_clicked, 1)
 
+    def test_default_arc_runs_on_entry_then_every_twenty_seconds(self):
+        task = FakeTask()
+        task.get_arc_key = lambda: "r"
+        calls = []
+        task.send_key = lambda key, **kwargs: calls.append((key, kwargs)) or True
+        char = BaseChar(task, 0, char_id="arc_user")
+
+        with patch("src.char.BaseChar.time.time", return_value=100.0):
+            char._try_default_arc_click()
+            char._try_default_arc_click()
+        with patch("src.char.BaseChar.time.time", return_value=119.9):
+            char._try_default_arc_click()
+        with patch("src.char.BaseChar.time.time", return_value=120.0):
+            char._try_default_arc_click()
+
+        char.last_switch_time = 121.0
+        with patch("src.char.BaseChar.time.time", return_value=121.0):
+            char._try_default_arc_click()
+
+        self.assertEqual([key for key, _ in calls], ["r", "r", "r"])
+        self.assertTrue(all(kwargs["action_name"] == ("default_arc", 0) for _, kwargs in calls))
+
     def test_entry_flow_runs_result_followups(self):
         calls = []
         task = FakeTask()
@@ -2006,6 +2029,42 @@ class TestCombatPlanner(unittest.TestCase):
         planner.record_entry_reaction(zero, nanally)
 
         self.assertIsNone(planner.state.locked_route)
+
+    def test_entry_reaction_wait_uses_interruptible_normal_attacks(self):
+        ordinary_calls = []
+        source = FakeChar(
+            0,
+            "source",
+            tags={ActionTag.ULTIMATE_ACTION},
+            plan_items=[
+                ActionIntent(
+                    name="source_ultimate",
+                    tags={ActionTag.ULTIMATE_ACTION},
+                    slot=ActionSlot.ULTIMATE,
+                    execute=lambda _: ordinary_calls.append("Q") or True,
+                )
+            ],
+            cycle_full=False,
+        )
+        target = FakeChar(1, "target")
+        planner = self._planner([source, target])
+        self._publish(
+            planner,
+            source,
+            lambda context: context.request_route(
+                [FollowupStep.for_entry_reaction(target, reason="target reaction")],
+                reason="reaction wait route",
+            ),
+        )
+
+        result = planner.perform_current_char(source)
+        decision = planner.decide_switch(source)
+
+        self.assertEqual(result.name, "wait_for_strict_route_action")
+        self.assertEqual(source.waited, 0.15)
+        self.assertEqual(ordinary_calls, [])
+        self.assertIs(decision.target, source)
+        self.assertIn("waiting entry reaction", decision.reason)
 
     def test_request_switch_prefers_target_without_expected_action(self):
         source = FakeChar(0, "source")

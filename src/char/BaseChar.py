@@ -41,6 +41,7 @@ class BaseChar:
     """角色基类，定义了游戏角色的通用属性和行为。"""
 
     INTRO_MOTION_FREEZE_DURATION = 1.5
+    DEFAULT_ARC_INTERVAL = 20.0
 
     def __init__(self, task, index, char_id="", confidence=1):
         """初始化角色基础属性。
@@ -66,6 +67,8 @@ class BaseChar:
         self.last_perform = 0
         self.last_skill_time = -1
         self.last_outro_time = -1
+        self._last_default_arc_time = float("-inf")
+        self._default_arc_switch_marker = None
         self.confidence = confidence
         self.logger = Logger.get_logger(self.name)
         self.cycle_start_time = 0.0
@@ -124,8 +127,15 @@ class BaseChar:
         self.switch_next_char()
 
     def _try_default_arc_click(self):
-        if not self.planner_handles_arc:
-            self.click_arc()
+        if self.planner_handles_arc:
+            return
+        now = time.time()
+        entered_field = self._default_arc_switch_marker != self.last_switch_time
+        if not entered_field and now - self._last_default_arc_time < self.DEFAULT_ARC_INTERVAL:
+            return
+        self.send_arc_key(action_name=("default_arc", self.index))
+        self._last_default_arc_time = now
+        self._default_arc_switch_marker = self.last_switch_time
 
     def add_intro_motion_freeze(self, start):
         self.add_freeze_duration(start, self.INTRO_MOTION_FREEZE_DURATION, freeze_time=-100)
@@ -777,7 +787,7 @@ class BaseChar:
             action_name=action_name,
         )
 
-    def send_arc_key(self, after_sleep=0, interval=-1, down_time=0.01):
+    def send_arc_key(self, after_sleep=0, interval=-1, down_time=0.01, action_name=None):
         """发送弧盘技能的按键。
 
         Args:
@@ -785,8 +795,12 @@ class BaseChar:
             interval (float, optional): 按键按下和释放的间隔。默认为 -1 (使用默认值)。
             down_time (float, optional): 按键按下的持续时间。默认为 0.01。
         """
-        self.send_key(
-            self.get_arc_key(), interval=interval, down_time=down_time, after_sleep=after_sleep
+        return self.send_key(
+            self.get_arc_key(),
+            interval=interval,
+            down_time=down_time,
+            after_sleep=after_sleep,
+            action_name=action_name,
         )
 
     def send_ultimate_key(self, after_sleep=0, interval=-1, down_time=0.01, action_name=None):

@@ -1051,7 +1051,11 @@ class CombatPlanner:
         if request is None:
             return None
         step = request.current_step()
-        if step is None or step.requires_entry_reaction or not step.matches_char(char):
+        if step is None:
+            return None
+        if not step.requires_entry_reaction and not step.matches_char(char):
+            return None
+        if step.requires_entry_reaction and step.matches_char(char):
             return None
 
         return ActionIntent(
