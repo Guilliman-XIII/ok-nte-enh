@@ -39,7 +39,10 @@ class Chiz(BaseChar):
             can_execute=lambda _: self.ultimate_available(),
         )
         skill = self.planner_action(
-            tags=Planner.ActionTag.SKILL_ACTION,
+            tags={
+                Planner.ActionTag.SKILL_ACTION,
+                Planner.ActionTag.ROUTE_WAIT_ACTION,
+            },
             slot=Planner.ActionSlot.SKILL,
             execute=self.perform_skill_chain,
             name="Chiz_skill_chain",

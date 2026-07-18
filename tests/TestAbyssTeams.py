@@ -377,6 +377,26 @@ class TestChizAbyssTeam(unittest.TestCase):
         self.assertEqual(self.trace.count(("Chiz", "BURST")), 2)
         self.assertEqual(self.planner.state.locked_route.reason, "Chiz Yingxu abyss cycle")
 
+    def test_chiz_can_use_skill_while_waiting_for_yingxu_entry_reaction(self):
+        current = self._perform_and_switch(self.jiuyuan)
+        current = self._perform_and_switch(current)
+        self.assertIs(current, self.chiz)
+
+        self.planner.perform_current_char(current)
+        route = self.planner.state.locked_route
+        self.assertIsNotNone(route)
+        self.assertTrue(route.current_step().requires_entry_reaction)
+
+        self.chiz.perform_skill_chain = (
+            lambda context=None: self.trace.append(("Chiz", "E_WAIT")) or True
+        )
+        result = self.planner.perform_current_char(current)
+
+        self.assertEqual(result.name, "Chiz_skill_chain")
+        self.assertIn(("Chiz", "E_WAIT"), self.trace)
+        self.assertIs(self.planner.state.locked_route, route)
+        self.assertTrue(route.current_step().requires_entry_reaction)
+
 
 class TestChizBurstSafety(unittest.TestCase):
     def test_skill_chain_uses_up_to_three_charges(self):

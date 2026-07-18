@@ -513,7 +513,7 @@ class CombatPlanner:
         route_action = self._strict_route_action(char, actions, context)
         if route_action is not None and route_action.identity_key() not in excluded_action_names:
             return route_action
-        route_wait = self._strict_route_wait_action(char, context)
+        route_wait = self._strict_route_wait_action(char, actions, context)
         if route_wait is not None and route_wait.identity_key() not in excluded_action_names:
             return route_wait
         if not context._state.active_requests:
@@ -1093,7 +1093,10 @@ class CombatPlanner:
         return None
 
     def _strict_route_wait_action(
-        self, char: "BaseChar", context: CombatContext
+        self,
+        char: "BaseChar",
+        actions: list[ActionIntent],
+        context: CombatContext,
     ) -> ActionIntent | None:
         request = self._strict_route_request(context)
         if request is None:
@@ -1105,6 +1108,13 @@ class CombatPlanner:
             return None
         if step.requires_entry_reaction and step.matches_char(char):
             return None
+
+        if step.requires_entry_reaction:
+            for action in actions:
+                if ActionTag.ROUTE_WAIT_ACTION not in action.tags:
+                    continue
+                if self._action_priority_ready(char, action, context):
+                    return action
 
         return ActionIntent(
             name="wait_for_strict_route_action",

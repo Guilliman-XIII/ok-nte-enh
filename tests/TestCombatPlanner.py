@@ -2119,6 +2119,44 @@ class TestCombatPlanner(unittest.TestCase):
         self.assertIs(decision.target, source)
         self.assertIn("waiting entry reaction", decision.reason)
 
+    def test_entry_reaction_wait_allows_explicit_safe_action_without_advancing_route(self):
+        safe_calls = []
+        source = FakeChar(
+            0,
+            "source",
+            plan_items=[
+                ActionIntent(
+                    name="safe_wait_skill",
+                    tags={
+                        ActionTag.SKILL_ACTION,
+                        ActionTag.ROUTE_WAIT_ACTION,
+                    },
+                    slot=ActionSlot.SKILL,
+                    execute=lambda _: safe_calls.append("E") or True,
+                )
+            ],
+            cycle_full=False,
+        )
+        target = FakeChar(1, "target")
+        planner = self._planner([source, target])
+        self._publish(
+            planner,
+            source,
+            lambda context: context.request_route(
+                [FollowupStep.for_entry_reaction(target, reason="target reaction")],
+                reason="reaction wait route",
+            ),
+        )
+
+        result = planner.perform_current_char(source)
+        decision = planner.decide_switch(source)
+
+        self.assertEqual(result.name, "safe_wait_skill")
+        self.assertEqual(safe_calls, ["E"])
+        self.assertIsNotNone(planner.state.locked_route)
+        self.assertTrue(planner.state.locked_route.current_step().requires_entry_reaction)
+        self.assertIs(decision.target, source)
+
     def test_request_switch_prefers_target_without_expected_action(self):
         source = FakeChar(0, "source")
         zero = FakeChar(1, "zero")
