@@ -3,6 +3,9 @@
 > 适用版本：`feat/baicang-combat`，1920×1080 窗口模式，120 FPS。
 > 目标：用录屏和 Planner 日志确认真实技能、切人、环合与失败恢复，不以“角色动了”代替验收。
 
+历史录像与脚本提交的对应关系见 `docs/research/abyss_video_version_matrix.md`。复盘旧录像时必须
+先核对版本矩阵，不得把后续已修复的问题重新列为当前缺陷。
+
 ## 1. 测试前检查
 
 1. 启动后先在日志确认存在 `OKNTE runtime version=... commit=... source=...`，记录本轮实际提交号。
