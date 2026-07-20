@@ -989,7 +989,7 @@ class BaseCombatTask(CharElementUIMixin, CombatCheck):
     def _match_visible_team_preset(self, count: int, manager) -> VisibleTeamMatch | None:
         """Identify every HUD slot and resolve exactly one saved four-member preset."""
         if count != 4:
-            self._report_strict_team_error(f"自动双队要求四人队伍，当前识别到{count}人")
+            self._report_strict_team_error(f"自动双队要求四人队伍, 当前识别到{count}人")
             return None
 
         frame = self.frame
@@ -1062,7 +1062,7 @@ class BaseCombatTask(CharElementUIMixin, CombatCheck):
 
         in_team, _, count = self.in_team()
         if not in_team:
-            self._report_strict_team_error("队伍界面暂不可用，已暂停旧队伍输入")
+            self._report_strict_team_error("队伍界面暂不可用, 已暂停旧队伍输入")
             return False
 
         manager = CustomCharManager()
@@ -1076,8 +1076,8 @@ class BaseCombatTask(CharElementUIMixin, CombatCheck):
         if not self._is_auto_team_selection_enabled():
             self.combat_planner.reset([])
             self._report_strict_team_error(
-                f"当前队伍已从{binding.preset_name}变为{visible.preset_name}，"
-                "未启用自动双队，已停止旧策略输入"
+                f"当前队伍已从{binding.preset_name}变为{visible.preset_name}, "
+                "未启用自动双队, 已停止旧策略输入"
             )
             return False
 
@@ -1085,12 +1085,12 @@ class BaseCombatTask(CharElementUIMixin, CombatCheck):
         # Keep every old input blocked until the next complete frame agrees.
         if getattr(self, "_pending_team_binding", None) != visible:
             self._pending_team_binding = visible
-            self.log_info(f"检测到队伍交接候选：{visible.preset_name}，等待稳定确认")
+            self.log_info(f"检测到队伍交接候选：{visible.preset_name}, 等待稳定确认")
             return False
 
         self.log_info(f"队伍交接确认：{binding.preset_name} -> {visible.preset_name}")
         if not self.load_chars(visible_match=visible):
-            self._report_strict_team_error("队伍交接重绑失败，已停止旧策略输入")
+            self._report_strict_team_error("队伍交接重绑失败, 已停止旧策略输入")
         return False
 
     def _do_load_char(self, index: int, fixed_slots) -> "BaseChar":

@@ -1193,3 +1193,9 @@ msgstr "Diagnósticos de detección de combate automático"
 
 msgid "持续检测诊断 Lv, 锁定目标标记(白色菱形)和红色血条; 请手动停止以查看完整报告"
 msgstr "Diagnostica continuamente la detección de Lv, marcador de objetivo fijado (diamante blanco) y barra de salud roja; por favor, detenga manualmente para ver el informe completo."
+
+msgid "深渊自动双队"
+msgstr "Equipos dobles automaticos del Abismo"
+
+msgid "<span style=\"color: #2ecc71;\">● 深渊自动双队：严格识别已启用</span>"
+msgstr "<span style=\"color: #2ecc71;\">● Equipos dobles automaticos del Abismo: Reconocimiento estricto activado</span>"

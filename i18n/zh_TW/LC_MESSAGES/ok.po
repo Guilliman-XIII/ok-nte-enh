@@ -1193,3 +1193,9 @@ msgstr "自動戰鬥檢測診斷"
 
 msgid "持续检测诊断 Lv, 锁定目标标记(白色菱形)和红色血条; 请手动停止以查看完整报告"
 msgstr "持續檢測診斷 Lv, 鎖定目標標記(白色菱形)和紅色血條; 請手動停止以查看完整報告"
+
+msgid "深渊自动双队"
+msgstr "深淵自動雙隊"
+
+msgid "<span style=\"color: #2ecc71;\">● 深渊自动双队：严格识别已启用</span>"
+msgstr "<span style=\"color: #2ecc71;\">● 深淵自動雙隊：嚴格識別已啟用</span>"

@@ -1182,3 +1182,9 @@ msgstr ""
 
 msgid "持续检测诊断 Lv, 锁定目标标记(白色菱形)和红色血条; 请手动停止以查看完整报告"
 msgstr ""
+
+msgid "深渊自动双队"
+msgstr "深渊自动双队"
+
+msgid "<span style=\"color: #2ecc71;\">● 深渊自动双队：严格识别已启用</span>"
+msgstr "<span style=\"color: #2ecc71;\">● 深渊自动双队：严格识别已启用</span>"

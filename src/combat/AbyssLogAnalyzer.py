@@ -19,6 +19,10 @@ KEEP_PATTERN = re.compile(r"planner keep (?P<char>\w+).+?reason (?P<reason>.+)$"
 REACTION_PATTERN = re.compile(
     r"strict route completed entry reaction (?P<source>\w+) -> (?P<target>\w+):"
 )
+NOT_IN_TEAM_PATTERN = re.compile(r"\) not in team (?P<seconds>\d+(?:\.\d+)?)s$")
+TEAM_HANDOFF_PATTERN = re.compile(
+    r"队伍交接确认：(?P<source>.+?) -> (?P<target>.+)$"
+)
 
 
 @dataclass(slots=True)
@@ -87,6 +91,13 @@ class AbyssTrace:
         sound_timeouts = sum(event.kind == "sound_timeout" for event in self.events)
         if sound_timeouts:
             issues.append(f"{sound_timeouts} sound actions discarded after timeout")
+        team_gaps = [
+            float(event.detail)
+            for event in self.events
+            if event.kind == "team_gap"
+        ]
+        if team_gaps and max(team_gaps) >= 2.0:
+            issues.append(f"team UI unavailable for {max(team_gaps):.2f}s during route")
         return issues
 
 
@@ -114,6 +125,20 @@ def parse_abyss_traces(lines: list[str]) -> list[AbyssTrace]:
             continue
 
         if current is None:
+            continue
+
+        team_gap = NOT_IN_TEAM_PATTERN.search(line)
+        if team_gap:
+            current.add(timestamp, "team_gap", team_gap.group("seconds"))
+            continue
+
+        handoff = TEAM_HANDOFF_PATTERN.search(line)
+        if handoff:
+            current.add(
+                timestamp,
+                "handoff",
+                f"{handoff.group('source')}->{handoff.group('target')}",
+            )
             continue
 
         action = ACTION_PATTERN.search(line)

@@ -96,6 +96,24 @@ class TestAbyssLogAnalyzer(unittest.TestCase):
         self.assertIn("status: expired", format_trace_report(traces))
         self.assertIn("route status is expired", traces[0].diagnosis())
 
+    def test_reports_team_ui_gap_during_a_locked_route(self):
+        trace = parse_abyss_traces(
+            [
+                "2026-07-16 10:00:00,000 INFO planner:strict route locked: "
+                "Chiz Yingxu abyss cycle / Zero E",
+                "2026-07-16 10:00:01,000 INFO AutoCombatTask:planner switch_next_char "
+                "(strict route) not in team 3.25s",
+                "2026-07-16 10:00:02,000 INFO BaseCombatTask:队伍交接确认："
+                "小吱盈蓄队 -> 白藏竞速队",
+            ]
+        )[0]
+
+        self.assertIn("team UI unavailable for 3.25s during route", trace.diagnosis())
+        self.assertEqual(
+            [event.detail for event in trace.events if event.kind == "handoff"],
+            ["小吱盈蓄队->白藏竞速队"],
+        )
+
     def test_irrelevant_log_returns_empty_report(self):
         traces = parse_abyss_traces(["2026-07-16 10:00:00,000 INFO app:started"])
 
