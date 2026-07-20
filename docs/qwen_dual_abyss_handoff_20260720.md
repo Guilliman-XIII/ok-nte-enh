@@ -1,5 +1,83 @@
 # Qwen Handoff: Dual-Team Abyss Finalization
 
+## Read This First
+
+This handoff records the newest runtime evidence and the immediate P0. Before changing combat behavior,
+read these repository documents in this order:
+
+1. `docs/research/abyss_live_research_decision.md` - evidence hierarchy, public guide source index,
+   player-provided mechanics, and the decisions already derived from them.
+2. `docs/combat_logic_deep_review.md`, sections 10 through 18 - the intended two-team design, the earlier
+   failure modes, and why Planner ownership matters.
+3. `docs/research/abyss_video_version_matrix.md` - which recording exercised which script revision. Never
+   diagnose an old recording as a defect in a later revision without checking this matrix first.
+4. `docs/abyss_live_test_runbook.md` - the live verification procedure and acceptance boundary.
+
+The user supplied additional Chinese guide subtitles, guide videos, and live recordings while this work
+was developed. Their useful findings are condensed into the first two documents above; do not assume an
+uncommitted local media path will exist on another machine.
+
+## Game And Team Primer
+
+NTE is a four-character real-time combat game. A good team alternates short off-field setup actions with
+deliberate on-field damage windows, while grouping, elemental/reaction setup, ultimate state, cooldowns,
+and survival all affect whether switching is useful. This repository automates visible UI and input only;
+it does not read game memory. Consequently, every claimed mechanic must remain an observable hypothesis
+until it is supported by source, Planner logs, or a version-bound recording.
+
+The immediate product goal is reliable personal Abyss automation at a 1920x1080 windowed game client
+(the user's display is 2K and recordings may be 60 FPS even when gameplay is 120 FPS). The intent is not
+to imitate every high-skill manual technique. It is to produce a robust, repeatable route that combines
+OKNTE's existing dodge/counter behavior with correct team rotations, and fails closed when the visible
+roster is uncertain.
+
+### Team 1: Baicang Speed Team
+
+HUD/preset order: `Baicang -> Daphneel -> Sakiri -> Hania`.
+
+- Baicang is the on-field main DPS. Keep her on field during grouped/enhanced windows. The current baseline
+  is bounded normal attacks; the player's manual Shift-held AOE is a promising but unvalidated automation
+  candidate, not an established requirement.
+- Daphneel is a dark-element off-field/sub-DPS. Her E/Q sequence should be short and hand control back to
+  Baicang. Baicang and Daphneel have the user's signature weapon R action; current evidence supports a
+  conservative roughly-20-second policy, but visual readiness would be stronger if practical.
+- Sakiri is the opening gather/control and damage-amplification setup. Her held E must be allowed to settle;
+  an immediate switch can cancel the actual grouping result.
+- Hania is the fast Q/E amplification/support step. She should not consume a long on-field window in the
+  speed variant. A harder Abyss variant may later replace her with Fatiya for sustain, but that is not the
+  current priority.
+
+Current conceptual rotation: Sakiri gather/settle -> Hania Q/E -> Daphneel E/Q -> Baicang field window.
+
+### Team 2: Chiz Yingxu Team
+
+HUD/preset order: `Chiz -> Zero -> Jiuyuan -> Yi`.
+
+- Chiz is the on-field main DPS. Her E is a three-use chain. Outside ultimate, the conservative baseline
+  is two normal attacks then one E; inside ultimate, use the visible gold-gauge signal to avoid spending
+  E at clearly poor value. The current yellow-versus-red gauge gate is only a conservative proxy, not a
+  proven peak-timing detector.
+- Jiuyuan is the grouping/quick-swap spirit setup. As with Sakiri, leave enough post-skill settle time for
+  the gather to complete before switching away.
+- Yi (the user's "wolf uncle") supplies the aspect/reaction part of the loop and should complete key Q/E
+  setup without taking a long field window.
+- Zero supplies cycle/sustain support and should also hand the field back quickly.
+
+Current conceptual rotation: Jiuyuan gather/creation -> Yi and Zero setup/reaction/cycle -> Chiz sustained
+field window. Do not collapse this into permanent support normal attacks merely because the next reaction
+or cooldown has not been observed yet.
+
+## Evidence Rules For Mechanics
+
+- Treat player guides, subtitles, and online explanations as design candidates, not as proof that a specific
+  screen state, color, sound, or input timing has occurred in this runtime.
+- Treat a complete route as successful only when the current code revision's Planner logs and/or video show
+  the intended action, switch, and return-to-main-DPS behavior.
+- Preserve Planner reservation and route ownership. Character scripts should declare intents; ad hoc direct
+  switching or input loops can reintroduce the races this branch removed.
+- Prefer a safe, measurable baseline over a sophisticated mechanic that cannot be verified from UI. Upgrade
+  the baseline only with focused tests plus a version-bound live recording.
+
 ## Current State
 
 - Branch: `feat/baicang-combat`
