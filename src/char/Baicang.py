@@ -19,20 +19,12 @@ class Baicang(BaseChar):
     The default output is conservative bounded left-click normal attacks with E/Q
     gating. Sound-triggered dodge and counter logic remains owned by BaseCombatTask.
 
-    Shift-AOE hypothesis [UNVALIDATED - requires live recording verification]:
-      During Q burst, holding a direction key (e.g. "w") makes Baicang advance
-      through grouped enemies, extending AOE coverage. Periodic Shift taps may
-      trigger dash-attacks for additional damage. Set BURST_DIRECTION_KEY to
-      enable direction holding during burst; set SHIFT_DASH_INTERVAL > 0 to add
-      periodic Shift taps. Both are disabled by default until a version-bound
-      recording confirms the input sequence produces the intended visual result
-      without conflicting with sound-triggered dodge.
-
-    Verification checklist before enabling:
-      1. 120 FPS recording of manual Shift-held AOE showing dash-attack triggers.
-      2. Measured minimum Shift tap duration and interval for reliable dash.
-      3. Confirmation that direction key hold does not interfere with dodge input.
-      4. 10 consecutive successful burst windows with Shift-AOE enabled.
+    Shift-AOE spin (player technique, currently DISABLED):
+      The player holds Shift continuously AND holds a direction key (A) to
+      spin in place, sweeping AOE around grouped enemies. This relies on
+      real-time visual adjustment the script cannot do, so it is disabled by
+      default. Re-enable BURST_DIRECTION_KEY / BURST_HOLD_SHIFT once the
+      exact input pattern is taught and verified against a recording.
     """
 
     MAX_FIELD_TIME = 0
@@ -47,9 +39,8 @@ class Baicang(BaseChar):
     SKILL_READY_STREAK_THRESHOLD = 2
     SKILL_SHORT_TIMEOUT = 2.0
     DEFAULT_DIRECTION_KEY = None
-    BURST_DIRECTION_KEY = "w"  # hold forward during Q burst for AOE coverage
-    SHIFT_DASH_INTERVAL = 1.2  # seconds between Shift taps during burst
-    SHIFT_DASH_DURATION = 0.08  # Shift key hold duration per tap
+    BURST_DIRECTION_KEY = None  # e.g. "a" to spin; disabled until technique is taught
+    BURST_HOLD_SHIFT = False  # hold Shift during burst; disabled until technique is taught
     ARC_CHECK_INTERVAL = 2.0  # seconds between R attempts during burst
     POST_SKILL_DODGE_DURATION = 1.0
     ABYSS_OPENER_TIMEOUT = 24.0
@@ -117,8 +108,8 @@ class Baicang(BaseChar):
     def _perform_burst(self, context: CombatContext = None):
         """Q 成功后的爆发输出循环 (参考 Nanally.perform_in_ult)。
 
-        - BURST_DIRECTION_KEY (或 DEFAULT_DIRECTION_KEY) 在整个循环期间持续按住
-        - SHIFT_DASH_INTERVAL > 0 时周期性点按 Shift 触发冲刺 [UNVALIDATED]
+        - BURST_DIRECTION_KEY (A) + Shift 全程按住: A 使白藏原地转身,
+          Shift 冲刺攻击扫成一圈 AOE
         - 循环受 ``ULT_FIELD_DURATION`` 限时
         - 每个分片后检查: deadline、is_current_char、is_dead、check_combat
         - E 冷却好后自动释放 (SECOND_SKILL_MODE=execute)
@@ -127,17 +118,19 @@ class Baicang(BaseChar):
         start = self._now()
         deadline = start + self.ULT_FIELD_DURATION
         direction_key = self.BURST_DIRECTION_KEY or self.DEFAULT_DIRECTION_KEY
-        shift_dash_enabled = self.SHIFT_DASH_INTERVAL > 0 and direction_key is not None
+        hold_shift = self.BURST_HOLD_SHIFT
 
         track_second_skill = self.SECOND_SKILL_MODE != "disabled"
         ready_streak = 0
         last_check = start
-        last_dash = start
         last_arc = start
 
         try:
             if direction_key is not None:
                 self.task.send_key_down(direction_key)
+            if hold_shift:
+                self.task.send_key_down("lshift")
+            if direction_key is not None or hold_shift:
                 self.sleep(0.1)
 
             while self._now() < deadline:
@@ -152,12 +145,6 @@ class Baicang(BaseChar):
                 slice_dur = min(self.ATTACK_SLICE_DURATION, remaining)
                 if slice_dur > 0:
                     self._normal_attack_slice(slice_dur)
-
-                if shift_dash_enabled and self._now() - last_dash >= self.SHIFT_DASH_INTERVAL:
-                    last_dash = self._now()
-                    self.task.send_key_down("lshift")
-                    self.sleep(self.SHIFT_DASH_DURATION)
-                    self.task.send_key_up("lshift")
 
                 if self._now() - last_arc >= self.ARC_CHECK_INTERVAL:
                     last_arc = self._now()
@@ -202,6 +189,8 @@ class Baicang(BaseChar):
         finally:
             if direction_key is not None:
                 self.task.send_key_up(direction_key)
+            if hold_shift:
+                self.task.send_key_up("lshift")
 
         self.logger.info(f"{_LOG_PREFIX} burst end")
 

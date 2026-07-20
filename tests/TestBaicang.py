@@ -285,23 +285,29 @@ class TestBaicangBurst(unittest.TestCase):
             self.char._perform_burst(None)
 
     def test_no_direction_key_when_default_is_none(self):
-        """方向键为 None 时不发送 send_key_down/up。"""
+        """方向键和 Shift 都关闭时不发送 send_key_down/up。"""
         self.char._skill_available = False
         self.char.BURST_DIRECTION_KEY = None
         self.char.DEFAULT_DIRECTION_KEY = None
+        self.char.BURST_HOLD_SHIFT = False
         self.char.ULT_FIELD_DURATION = 0.05
         self.char._perform_burst(None)
         self.char.task.send_key_down.assert_not_called()
         self.char.task.send_key_up.assert_not_called()
 
-    def test_direction_key_held_when_configured(self):
-        """配置了方向键时正常 send_key_down/up。"""
+    def test_spin_aoe_holds_direction_and_shift(self):
+        """转圈 AOE(显式启用时): 方向键(A) + Shift 全程按住, 结束后都释放。"""
         self.char._skill_available = False
-        self.char.DEFAULT_DIRECTION_KEY = "w"
+        self.char.BURST_DIRECTION_KEY = "a"
+        self.char.BURST_HOLD_SHIFT = True
         self.char.ULT_FIELD_DURATION = 0.05
         self.char._perform_burst(None)
-        self.assertEqual(self.char.task.send_key_down.call_count, 1)
-        self.assertEqual(self.char.task.send_key_up.call_count, 1)
+        self.char.task.send_key_down.assert_any_call("a")
+        self.char.task.send_key_down.assert_any_call("lshift")
+        self.char.task.send_key_up.assert_any_call("a")
+        self.char.task.send_key_up.assert_any_call("lshift")
+        self.assertEqual(self.char.task.send_key_down.call_count, 2)
+        self.assertEqual(self.char.task.send_key_up.call_count, 2)
 
     def test_burst_does_not_call_click_skill_directly(self):
         self.char._skill_available = False
