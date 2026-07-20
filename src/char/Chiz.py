@@ -13,6 +13,9 @@ class Chiz(BaseChar):
     SKILL_CHAIN_NORMAL_ATTACKS = 2
     SKILL_CHAIN_ATTACK_INTERVAL = 0.35
     SKILL_CHAIN_MIN_E_INTERVAL = 0.6
+    # Minimum yellow gauge percentage to consider E; below this the reading is noise.
+    # The yellow > red gate is a conservative proxy, not a proven peak-timing detector.
+    SKILL_GAUGE_MIN_YELLOW = 0.02
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -107,6 +110,7 @@ class Chiz(BaseChar):
             if (
                 skill_uses < self.SKILL_CHAIN_MAX_USES
                 and self._now() - last_skill_at >= self.SKILL_CHAIN_MIN_E_INTERVAL
+                and yellow_pct >= self.SKILL_GAUGE_MIN_YELLOW
                 and yellow_pct > red_pct
                 and self.skill_available()
                 and (

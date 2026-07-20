@@ -877,6 +877,25 @@ class CustomCharManager:
                     matches.append(preset_id)
             return matches[0] if len(matches) == 1 else None
 
+    def partial_preset_match_count(self, char_ids) -> int:
+        """Return how many saved presets contain ALL given char_ids as a subset.
+
+        Used during initial load to distinguish a partially recognized known abyss
+        roster (count > 0) from a genuinely unknown team (count == 0).
+        """
+        normalized_ids = [self._as_text(cid).strip() for cid in char_ids if cid]
+        if not normalized_ids:
+            return 0
+        query_set = set(normalized_ids)
+        with self._data_lock:
+            fixed_team = self._normalize_fixed_team_config(self.db.get("fixed_team"))
+            count = 0
+            for preset in fixed_team["presets"].values():
+                preset_ids = {slot["char_id"] for slot in preset["slots"]}
+                if query_set <= preset_ids:
+                    count += 1
+            return count
+
 
 def create_ellipse_mask(w, h, rx, ry):
     mask = np.zeros((h, w), dtype=np.uint8)

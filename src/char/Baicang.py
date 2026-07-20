@@ -14,10 +14,25 @@ _LOG_PREFIX = "[Baicang]"
 
 
 class Baicang(BaseChar):
-    """Baicang main DPS with a conservative normal-attack fallback.
+    """Baicang main DPS with bounded normal-attack baseline and optional Shift-AOE.
 
-    V1 intentionally avoids the unverified Shift movement combo. Sound-triggered
-    dodge and counter logic remains owned by BaseCombatTask.
+    The default output is conservative bounded left-click normal attacks with E/Q
+    gating. Sound-triggered dodge and counter logic remains owned by BaseCombatTask.
+
+    Shift-AOE hypothesis [UNVALIDATED - requires live recording verification]:
+      During Q burst, holding a direction key (e.g. "w") makes Baicang advance
+      through grouped enemies, extending AOE coverage. Periodic Shift taps may
+      trigger dash-attacks for additional damage. Set BURST_DIRECTION_KEY to
+      enable direction holding during burst; set SHIFT_DASH_INTERVAL > 0 to add
+      periodic Shift taps. Both are disabled by default until a version-bound
+      recording confirms the input sequence produces the intended visual result
+      without conflicting with sound-triggered dodge.
+
+    Verification checklist before enabling:
+      1. 120 FPS recording of manual Shift-held AOE showing dash-attack triggers.
+      2. Measured minimum Shift tap duration and interval for reliable dash.
+      3. Confirmation that direction key hold does not interfere with dodge input.
+      4. 10 consecutive successful burst windows with Shift-AOE enabled.
     """
 
     MAX_FIELD_TIME = 0
@@ -32,6 +47,9 @@ class Baicang(BaseChar):
     SKILL_READY_STREAK_THRESHOLD = 3
     SKILL_SHORT_TIMEOUT = 2.0
     DEFAULT_DIRECTION_KEY = None
+    BURST_DIRECTION_KEY = None  # e.g. "w" to hold forward during Q burst [UNVALIDATED]
+    SHIFT_DASH_INTERVAL = 0.0  # seconds between Shift taps during burst; 0 = disabled
+    SHIFT_DASH_DURATION = 0.08  # Shift key hold duration per tap
     POST_SKILL_DODGE_DURATION = 1.0
     ABYSS_OPENER_TIMEOUT = 24.0
 
@@ -101,7 +119,8 @@ class Baicang(BaseChar):
     def _perform_burst(self, context: CombatContext = None, first_skill_succeeded: bool = False):
         """Q 成功后的爆发输出循环 (参考 Nanally.perform_in_ult)。
 
-        - 方向键在整个循环期间持续按住（如果配置了）
+        - BURST_DIRECTION_KEY (或 DEFAULT_DIRECTION_KEY) 在整个循环期间持续按住
+        - SHIFT_DASH_INTERVAL > 0 时周期性点按 Shift 触发冲刺 [UNVALIDATED]
         - 循环受 ``ULT_FIELD_DURATION`` 限时
         - 每个分片后检查: deadline、is_current_char、is_dead、check_combat
         - 第二 E 保护链仅在第一 E 真实成功时启用
@@ -111,13 +130,15 @@ class Baicang(BaseChar):
         )
         start = self._now()
         deadline = start + self.ULT_FIELD_DURATION
-        direction_key = self.DEFAULT_DIRECTION_KEY
+        direction_key = self.BURST_DIRECTION_KEY or self.DEFAULT_DIRECTION_KEY
+        shift_dash_enabled = self.SHIFT_DASH_INTERVAL > 0 and direction_key is not None
 
         track_second_skill = self.SECOND_SKILL_MODE != "disabled" and first_skill_succeeded
         cooldown_confirmed = False
         ready_streak = 0
         second_skill_done = False
         last_check = start
+        last_dash = start
 
         try:
             if direction_key is not None:
@@ -136,6 +157,12 @@ class Baicang(BaseChar):
                 slice_dur = min(self.ATTACK_SLICE_DURATION, remaining)
                 if slice_dur > 0:
                     self._normal_attack_slice(slice_dur)
+
+                if shift_dash_enabled and self._now() - last_dash >= self.SHIFT_DASH_INTERVAL:
+                    last_dash = self._now()
+                    self.task.send_key_down("lshift")
+                    self.sleep(self.SHIFT_DASH_DURATION)
+                    self.task.send_key_up("lshift")
 
                 self.sleep(0.01)
                 self.check_combat()

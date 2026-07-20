@@ -70,6 +70,8 @@ class BaseCombatTask(CharElementUIMixin, CombatCheck):
     FREEZE_DURATION_RETENTION_SECONDS = 20 * 60
     STRICT_TEAM_MATCH_THRESHOLD = 0.65
     TEAM_BINDING_CHECK_INTERVAL = 0.25
+    PARTIAL_RECOGNITION_RETRIES = 4
+    PARTIAL_RECOGNITION_RETRY_INTERVAL = 0.18
     _runtime_identity_logged = False
 
     element_reactions = (
@@ -1030,6 +1032,68 @@ class BaseCombatTask(CharElementUIMixin, CombatCheck):
             slots=slots,
         )
 
+    def _probe_visible_team(self, count: int, manager) -> tuple[VisibleTeamMatch | None, int]:
+        """Probe HUD slots and return (full_match, partial_preset_count).
+
+        full_match is the same result as _match_visible_team_preset when all four
+        slots are confidently identified and uniquely match a saved preset.
+
+        partial_preset_count > 0 means the confidently identified subset belongs
+        to at least one saved abyss profile, so the caller should hold input and
+        retry rather than falling back to generic detection.
+        """
+        if count != 4:
+            return None, 0
+
+        frame = self.frame
+        confident_ids: list[str] = []
+        all_confident = True
+        for index in range(4):
+            feature_mat, _, _ = get_char_feature_by_pos(self, index, frame=frame)
+            if feature_mat is None or feature_mat.size <= 0:
+                all_confident = False
+                continue
+            matched, char_id, confidence = manager.match_feature(
+                self,
+                feature_mat,
+                threshold=self.STRICT_TEAM_MATCH_THRESHOLD,
+            )
+            if matched and char_id:
+                confident_ids.append(char_id)
+            else:
+                all_confident = False
+
+        if all_confident and len(confident_ids) == 4:
+            full_match = self._match_visible_team_preset(count, manager)
+            if full_match is not None:
+                return full_match, 0
+            # All four matched individually but no unique preset — treat as unknown.
+            return None, 0
+
+        # Partial recognition: check if the confident subset belongs to a saved preset.
+        if confident_ids:
+            partial_count = manager.partial_preset_match_count(confident_ids)
+            return None, partial_count
+
+        return None, 0
+
+    def _stabilize_partial_recognition(self, count: int, manager) -> VisibleTeamMatch | None:
+        """Retry full recognition for a short window after a partial known match.
+
+        Returns a complete VisibleTeamMatch if the HUD stabilizes within the retry
+        budget, or None if recognition never completes (caller should fail closed).
+        """
+        for attempt in range(self.PARTIAL_RECOGNITION_RETRIES):
+            self.sleep(self.PARTIAL_RECOGNITION_RETRY_INTERVAL)
+            match = self._match_visible_team_preset(count, manager)
+            if match is not None:
+                self.log_info(
+                    f"自动双队：稳定帧第{attempt + 1}次重试成功绑定 {match.preset_name}"
+                )
+                return match
+        self.log_info("自动双队：稳定窗口内未完成识别, 拒绝通用回退")
+        return None
+
     def _record_team_binding(self, match: VisibleTeamMatch | None) -> None:
         self._team_binding = match
         self._pending_team_binding = None
@@ -1141,10 +1205,23 @@ class BaseCombatTask(CharElementUIMixin, CombatCheck):
         if auto_selection:
             visible_match = visible_match or self._match_visible_team_preset(count, manager)
             if visible_match is None:
-                # A new non-abyss battle still uses OKNTE's ordinary character detection.
-                # Strict failure applies after a saved abyss team has been bound.
-                auto_selection = False
-                fixed_slots = []
+                # Probe whether the partially recognized slots belong to a saved abyss profile.
+                _, partial_count = self._probe_visible_team(count, manager)
+                if partial_count > 0:
+                    # A known abyss roster is partially visible; hold input and retry
+                    # for a short stabilization window before failing closed.
+                    self.log_info(
+                        f"自动双队：部分识别已知深渊阵容({partial_count}个预设匹配), 等待稳定帧"
+                    )
+                    visible_match = self._stabilize_partial_recognition(count, manager)
+                    if visible_match is None:
+                        return False
+                    fixed_slots = visible_match.slots
+                else:
+                    # A new non-abyss battle still uses OKNTE's ordinary character detection.
+                    # Strict failure applies after a saved abyss team has been bound.
+                    auto_selection = False
+                    fixed_slots = []
             else:
                 fixed_slots = visible_match.slots
         elif armed_preset:

@@ -298,6 +298,7 @@ class TestTeamPresetGuard(unittest.TestCase):
             chars.append(char)
         task._do_load_char.side_effect = chars
         task._match_visible_team_preset = Mock(return_value=None)
+        task._probe_visible_team = Mock(return_value=(None, 0))
 
         manager = Mock()
         manager.get_fixed_team.return_value = {
@@ -319,6 +320,76 @@ class TestTeamPresetGuard(unittest.TestCase):
             [call.args[1] for call in task._do_load_char.call_args_list],
             [[]] * 4,
         )
+
+    def test_partial_known_abyss_holds_input_and_fails_closed(self):
+        """Three known saved profiles + one low-confidence slot must not create generic chars."""
+        task = self._load_task()
+        task._match_visible_team_preset = Mock(return_value=None)
+        task._probe_visible_team = Mock(return_value=(None, 2))
+        task._stabilize_partial_recognition = Mock(return_value=None)
+        task.sleep = Mock()
+
+        manager = Mock()
+        manager.get_fixed_team.return_value = {
+            "enabled": False,
+            "selection_mode": "auto",
+            "active_preset_id": "",
+            "slots": [],
+            "presets": {"team_upper": {}, "team_lower": {}},
+        }
+        manager.get_armed_team_preset.return_value = None
+
+        with patch("src.combat.BaseCombatTask.CustomCharManager", return_value=manager):
+            loaded = BaseCombatTask.load_chars(task)
+
+        self.assertFalse(loaded)
+        task._do_load_char.assert_not_called()
+        task.combat_planner.reset.assert_not_called()
+
+    def test_partial_known_abyss_binds_on_stabilized_retry(self):
+        """A following complete unique frame must bind the expected preset in HUD slot order."""
+        task = self._load_task()
+        visible = self._visible_match(
+            "team_lower",
+            ("char_3", "char_1", "char_0", "char_2"),
+        )
+        task._match_visible_team_preset = Mock(return_value=None)
+        task._probe_visible_team = Mock(return_value=(None, 1))
+        task._stabilize_partial_recognition = Mock(return_value=visible)
+        task.sleep = Mock()
+
+        chars = []
+        for index in range(4):
+            char = Mock()
+            char.index = index
+            char.element = Element.WHITE
+            char.char_name = f"char_{index}"
+            char.confidence = 0.95
+            char.combo_name = "builtin"
+            chars.append(char)
+        task._do_load_char.side_effect = chars
+
+        manager = Mock()
+        manager.get_fixed_team.return_value = {
+            "enabled": False,
+            "selection_mode": "auto",
+            "active_preset_id": "",
+            "slots": [],
+            "presets": {"team_upper": {}, "team_lower": {}},
+        }
+        manager.get_armed_team_preset.return_value = None
+
+        with patch("src.combat.BaseCombatTask.CustomCharManager", return_value=manager):
+            loaded = BaseCombatTask.load_chars(task)
+
+        self.assertTrue(loaded)
+        self.assertEqual(task.active_team_preset_id, "team_lower")
+        self.assertEqual(task._team_binding, visible)
+        self.assertEqual(
+            [call.args[1] for call in task._do_load_char.call_args_list],
+            [visible.slots] * 4,
+        )
+        task.combat_planner.reset.assert_called_once_with(chars)
 
 
 if __name__ == "__main__":
