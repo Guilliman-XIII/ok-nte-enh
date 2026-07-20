@@ -288,6 +288,8 @@ class TestBaicangBurst(unittest.TestCase):
     def test_no_direction_key_when_default_is_none(self):
         """方向键为 None 时不发送 send_key_down/up。"""
         self.char._skill_available = False
+        self.char.BURST_DIRECTION_KEY = None
+        self.char.DEFAULT_DIRECTION_KEY = None
         self.char.ULT_FIELD_DURATION = 0.05
         self.char._perform_burst(None, first_skill_succeeded=True)
         self.char.task.send_key_down.assert_not_called()

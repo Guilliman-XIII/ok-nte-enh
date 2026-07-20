@@ -47,8 +47,8 @@ class Baicang(BaseChar):
     SKILL_READY_STREAK_THRESHOLD = 3
     SKILL_SHORT_TIMEOUT = 2.0
     DEFAULT_DIRECTION_KEY = None
-    BURST_DIRECTION_KEY = None  # e.g. "w" to hold forward during Q burst [UNVALIDATED]
-    SHIFT_DASH_INTERVAL = 0.0  # seconds between Shift taps during burst; 0 = disabled
+    BURST_DIRECTION_KEY = "w"  # hold forward during Q burst for AOE coverage
+    SHIFT_DASH_INTERVAL = 1.2  # seconds between Shift taps during burst
     SHIFT_DASH_DURATION = 0.08  # Shift key hold duration per tap
     POST_SKILL_DODGE_DURATION = 1.0
     ABYSS_OPENER_TIMEOUT = 24.0
