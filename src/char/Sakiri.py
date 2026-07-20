@@ -5,7 +5,7 @@ from src.combat.planner import Planner, RoleProfile
 class Sakiri(BaseChar):
     SKILL_HOLD_DURATION = 0.8
     SKILL_SETTLE_DURATION = 1.2
-    GATHER_REUSE_INTERVAL = 18.0  # minimum seconds between re-gather attempts
+    GATHER_REUSE_INTERVAL = 10.0  # minimum seconds between re-gather attempts
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

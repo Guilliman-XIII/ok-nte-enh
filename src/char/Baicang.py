@@ -43,13 +43,14 @@ class Baicang(BaseChar):
     DODGE_CLICK_INTERVAL = 0.12
     DODGE_SLICE_DURATION = 0.12
     SKILL_CHECK_INTERVAL = 1.5
-    SECOND_SKILL_MODE = "observe"  # disabled | observe | execute
+    SECOND_SKILL_MODE = "execute"  # disabled | observe | execute
     SKILL_READY_STREAK_THRESHOLD = 3
     SKILL_SHORT_TIMEOUT = 2.0
     DEFAULT_DIRECTION_KEY = None
     BURST_DIRECTION_KEY = "w"  # hold forward during Q burst for AOE coverage
     SHIFT_DASH_INTERVAL = 1.2  # seconds between Shift taps during burst
     SHIFT_DASH_DURATION = 0.08  # Shift key hold duration per tap
+    ARC_CHECK_INTERVAL = 2.0  # seconds between R attempts during burst
     POST_SKILL_DODGE_DURATION = 1.0
     ABYSS_OPENER_TIMEOUT = 24.0
 
@@ -139,6 +140,7 @@ class Baicang(BaseChar):
         second_skill_done = False
         last_check = start
         last_dash = start
+        last_arc = start
 
         try:
             if direction_key is not None:
@@ -163,6 +165,10 @@ class Baicang(BaseChar):
                     self.task.send_key_down("lshift")
                     self.sleep(self.SHIFT_DASH_DURATION)
                     self.task.send_key_up("lshift")
+
+                if self._now() - last_arc >= self.ARC_CHECK_INTERVAL:
+                    last_arc = self._now()
+                    self.send_arc_key(action_name=("baicang_burst_arc", self.index))
 
                 self.sleep(0.01)
                 self.check_combat()
