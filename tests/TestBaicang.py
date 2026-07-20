@@ -229,7 +229,7 @@ class TestBaicangCombatPlan(unittest.TestCase):
         plan = self.char.combat_plan(None)
         gen = plan.entry()
         next(gen)  # yield ultimate
-        second = gen.send(False)  # Q fails → yield skill
+        gen.send(False)  # Q fails → yield skill
         with self.assertRaises(StopIteration):
             gen.send(True)  # E success → post_skill_dodge
         self.assertGreater(self.char.post_skill_dodge_calls, 0)
@@ -334,10 +334,21 @@ class TestBaicangSecondSkill(unittest.TestCase):
         self.char.SECOND_SKILL_MODE = "execute"
         self.char.SKILL_CHECK_INTERVAL = 0.1
 
-    def test_second_skill_at_most_once(self):
-        self.char._skill_available_sequence = [False, True, True, True, True, True, True, True]
+    def test_skill_fires_when_ready_streak_reached(self):
+        """E 就绪并连续确认后释放; 随后冷却(序列转 False)不再放。"""
+        self.char._skill_available_sequence = [
+            True, True, False, False, False, False, False, False, False, False
+        ]
         self.char._perform_burst(None)
-        self.assertLessEqual(self.char.skill_calls, 1)
+        self.assertEqual(self.char.skill_calls, 1)
+
+    def test_skill_can_fire_again_after_cooldown(self):
+        """E 放完进入冷却, 冷却结束后再次就绪可再放一次。"""
+        self.char._skill_available_sequence = [
+            True, True, False, False, False, True, True, False, False, False
+        ]
+        self.char._perform_burst(None)
+        self.assertEqual(self.char.skill_calls, 2)
 
     def test_observation_mode_no_click(self):
         self.char.SECOND_SKILL_MODE = "observe"
@@ -347,50 +358,38 @@ class TestBaicangSecondSkill(unittest.TestCase):
 
     def test_disabled_mode_no_tracking(self):
         self.char.SECOND_SKILL_MODE = "disabled"
-        self.char._skill_available_sequence = [False, True, True, True, True, True, True, True]
+        self.char._skill_available_sequence = [True, True, True, True, True, True, True, True]
         self.char._perform_burst(None)
         self.assertEqual(self.char.skill_calls, 0)
 
-    def test_second_skill_always_tracked_in_execute_mode(self):
-        """Q-first 设计: 爆发期间 E 始终追踪, 不再依赖前置 E 是否成功。"""
-        self.char._skill_available_sequence = [False, True, True, True, True, True, True, True]
+    def test_skill_tracked_without_pre_q_skill(self):
+        """Q-first 设计: 爆发开始时 E 直接就绪也能释放, 不依赖前置 E。"""
+        self.char._skill_available_sequence = [
+            True, True, False, False, False, False, False, False
+        ]
         self.char._perform_burst(None)
         self.assertEqual(self.char.skill_calls, 1)
 
     def test_single_frame_glitch_no_trigger(self):
-        self.char._skill_available_sequence = [False, True, False, False, False, False, False]
+        self.char._skill_available_sequence = [True, False, False, False, False, False, False]
         self.char._perform_burst(None)
         self.assertEqual(self.char.skill_calls, 0)
 
-    def test_streak_reset_on_break(self):
+    def test_streak_break_prevents_premature_fire(self):
+        """单次就绪后被冷却打断, 不会提前放; 重新连续就绪才放。"""
         self.char._skill_available_sequence = [
-            False,
-            True,
-            True,
-            False,
-            True,
-            True,
-            True,
-            True,
-            True,
+            True, False, False, True, True, False, False, False, False
         ]
         self.char._perform_burst(None)
         self.assertEqual(self.char.skill_calls, 1)
 
-    def test_streak_threshold_triggers_once(self):
+    def test_skill_fires_repeatedly_when_continuously_ready(self):
+        """E 持续就绪(无冷却)时按节流派放多次。"""
         self.char._skill_available_sequence = [
-            False,
-            True,
-            True,
-            True,
-            True,
-            True,
-            True,
-            True,
-            True,
+            True, True, True, True, True, True, False, False, False, False
         ]
         self.char._perform_burst(None)
-        self.assertEqual(self.char.skill_calls, 1)
+        self.assertEqual(self.char.skill_calls, 3)
 
 
 class TestBaicangFallbackDodge(unittest.TestCase):

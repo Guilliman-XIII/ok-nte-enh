@@ -42,9 +42,9 @@ class Baicang(BaseChar):
     ATTACK_SLICE_DURATION = 0.36
     DODGE_CLICK_INTERVAL = 0.12
     DODGE_SLICE_DURATION = 0.12
-    SKILL_CHECK_INTERVAL = 1.5
+    SKILL_CHECK_INTERVAL = 0.8
     SECOND_SKILL_MODE = "execute"  # disabled | observe | execute
-    SKILL_READY_STREAK_THRESHOLD = 3
+    SKILL_READY_STREAK_THRESHOLD = 2
     SKILL_SHORT_TIMEOUT = 2.0
     DEFAULT_DIRECTION_KEY = None
     BURST_DIRECTION_KEY = "w"  # hold forward during Q burst for AOE coverage
@@ -130,9 +130,7 @@ class Baicang(BaseChar):
         shift_dash_enabled = self.SHIFT_DASH_INTERVAL > 0 and direction_key is not None
 
         track_second_skill = self.SECOND_SKILL_MODE != "disabled"
-        cooldown_confirmed = False
         ready_streak = 0
-        second_skill_done = False
         last_check = start
         last_dash = start
         last_arc = start
@@ -168,7 +166,7 @@ class Baicang(BaseChar):
                 self.sleep(0.01)
                 self.check_combat()
 
-                if not track_second_skill or second_skill_done:
+                if not track_second_skill:
                     self.sleep(0.1)
                     continue
                 if self._now() - last_check < self.SKILL_CHECK_INTERVAL:
@@ -176,25 +174,16 @@ class Baicang(BaseChar):
                     continue
 
                 last_check = self._now()
-                skill_ready = self.skill_available()
-
-                if not cooldown_confirmed:
-                    if not skill_ready:
-                        cooldown_confirmed = True
-                        self.logger.info(f"{_LOG_PREFIX} skill cooldown confirmed")
-                    self.sleep(0.1)
-                    continue
-
-                if skill_ready:
+                if self.skill_available():
                     ready_streak += 1
-                    if ready_streak == 1 or ready_streak == self.SKILL_READY_STREAK_THRESHOLD:
+                    if ready_streak == 1:
                         self.logger.info(
-                            f"{_LOG_PREFIX} second skill streak="
+                            f"{_LOG_PREFIX} skill ready streak="
                             f"{ready_streak}/{self.SKILL_READY_STREAK_THRESHOLD}"
                         )
                 else:
                     if ready_streak > 0:
-                        self.logger.info(f"{_LOG_PREFIX} streak reset (was {ready_streak})")
+                        self.logger.debug(f"{_LOG_PREFIX} skill streak reset (was {ready_streak})")
                     ready_streak = 0
                     self.sleep(0.1)
                     continue
@@ -204,10 +193,11 @@ class Baicang(BaseChar):
                     continue
 
                 if self.SECOND_SKILL_MODE == "execute":
-                    self._try_second_skill(context)
+                    if self._try_second_skill(context):
+                        ready_streak = 0  # allow E to fire again after next cooldown
                 else:
-                    self.logger.info(f"{_LOG_PREFIX} second skill armed (observe mode)")
-                second_skill_done = True
+                    self.logger.info(f"{_LOG_PREFIX} skill armed (observe mode)")
+                    ready_streak = 0
                 self.sleep(0.1)
         finally:
             if direction_key is not None:
