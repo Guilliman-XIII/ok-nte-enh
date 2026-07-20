@@ -11,6 +11,7 @@ from src.char.Baicang import Baicang
 from src.char.BaseChar import BaseChar, Element
 from src.char.CharFactory import char_dict
 from src.combat.BaseCombatTask import NotInCombatException
+from src.combat.enemy_field import CONF_VISION_STEER, EnemyField
 from src.combat.planner import ActionSlot, FieldPreference, Role
 
 
@@ -450,6 +451,88 @@ class TestBaicangNow(unittest.TestCase):
         char = TestableBaicang()
         char._fake_time = 99.0
         self.assertEqual(char._now(), 99.0)
+
+
+class _Box:
+    def __init__(self, x, y, width, height):
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+
+
+def _field(cx, cy, count=3, available=True):
+    return EnemyField(count, cx, cy, 0.1, False, available)
+
+
+class TestBaicangSteerDecision(unittest.TestCase):
+    def setUp(self):
+        self.char = TestableBaicang()
+
+    def test_unavailable_returns_base(self):
+        self.assertEqual(self.char._steer_direction_key(EnemyField.unavailable(), "x"), "x")
+
+    def test_none_field_returns_base(self):
+        self.assertEqual(self.char._steer_direction_key(None, "x"), "x")
+
+    def test_no_enemies_returns_base(self):
+        self.assertEqual(self.char._steer_direction_key(_field(0.9, 0.5, count=0), "x"), "x")
+
+    def test_cluster_right_steers_right(self):
+        self.assertEqual(self.char._steer_direction_key(_field(0.8, 0.5), "x"), "d")
+
+    def test_cluster_left_steers_left(self):
+        self.assertEqual(self.char._steer_direction_key(_field(0.2, 0.5), "x"), "a")
+
+    def test_cluster_above_steers_forward(self):
+        self.assertEqual(self.char._steer_direction_key(_field(0.5, 0.2), "x"), "w")
+
+    def test_cluster_below_steers_back(self):
+        self.assertEqual(self.char._steer_direction_key(_field(0.5, 0.8), "x"), "s")
+
+    def test_center_deadzone_keeps_base(self):
+        self.assertEqual(self.char._steer_direction_key(_field(0.52, 0.5), "x"), "x")
+
+    def test_diagonal_uses_dominant_axis(self):
+        # dx=+0.3 (right) dominates dy=-0.1 (up) -> steer right
+        self.assertEqual(self.char._steer_direction_key(_field(0.8, 0.4), "x"), "d")
+
+
+class TestBaicangVisionSteerBurst(unittest.TestCase):
+    def setUp(self):
+        self.char = TestableBaicang()
+        self.char._mock_burst = False
+        self.char._ultimate_available = True
+        self.char._skill_available = False
+        self.char.is_current_char = True
+        self.char.is_dead = False
+
+    def test_burst_steers_toward_cluster_when_enabled(self):
+        self.char.ULT_FIELD_DURATION = 0.5
+        self.char.task.config = {CONF_VISION_STEER: True}
+        self.char.task.openvino_available = True
+        self.char.task.main_viewport = _Box(0, 0, 1000, 1000)
+        # cluster on the right -> steer right ("d")
+        self.char.task.openvino_detect.return_value = [_Box(800, 480, 40, 40)]
+        self.char._perform_burst(None)
+        self.char.task.send_key_down.assert_any_call("d")
+        self.char.task.send_key_up.assert_any_call("d")
+
+    def test_burst_falls_back_to_spin_when_detection_unavailable(self):
+        self.char.ULT_FIELD_DURATION = 0.3
+        self.char.task.config = {CONF_VISION_STEER: True}
+        self.char.task.openvino_available = False
+        self.char._perform_burst(None)
+        self.char.task.send_key_down.assert_any_call("a")
+        self.char.task.send_key_up.assert_any_call("a")
+
+    def test_burst_default_off_does_not_read_detector(self):
+        self.char.ULT_FIELD_DURATION = 0.3
+        self.char.task.config = {}
+        self.char.task.openvino_available = True
+        self.char._perform_burst(None)
+        self.char.task.openvino_detect.assert_not_called()
+        self.char.task.send_key_down.assert_any_call("a")
 
 
 if __name__ == "__main__":

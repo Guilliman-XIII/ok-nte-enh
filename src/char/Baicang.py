@@ -1,6 +1,7 @@
 import time
 
 from src.char.BaseChar import BaseChar
+from src.combat.enemy_field import CONF_VISION_STEER, feature_enabled, read_enemy_field
 from src.combat.planner import (
     ActionSlot,
     ActionTag,
@@ -44,6 +45,13 @@ class Baicang(BaseChar):
     ARC_CHECK_INTERVAL = 2.0  # seconds between R attempts during burst
     POST_SKILL_DODGE_DURATION = 1.0
     ABYSS_OPENER_TIMEOUT = 24.0
+    # Vision-steered rolling (config-gated, default OFF). All UNVERIFIED, tune live.
+    STEER_CHECK_INTERVAL = 0.4  # seconds between re-aiming toward the enemy cluster
+    STEER_DEADZONE = 0.12  # cluster this close to screen centre -> keep spinning
+    STEER_KEY_LEFT = "a"
+    STEER_KEY_RIGHT = "d"
+    STEER_KEY_FORWARD = "w"
+    STEER_KEY_BACK = "s"
 
     @staticmethod
     def is_abyss_team(chars):
@@ -92,9 +100,12 @@ class Baicang(BaseChar):
         )
 
         def entry():
+            from src.combat.team_strategies import maybe_request_scatter_gather
+
             ultimate_result = yield ultimate
             if ultimate_result:
                 self._perform_burst(context)
+                maybe_request_scatter_gather(context, self.task, self.task.chars, self)
                 return
 
             skill_result = yield skill
@@ -102,13 +113,16 @@ class Baicang(BaseChar):
                 self._post_skill_dodge()
             else:
                 yield fallback_dodge
+            maybe_request_scatter_gather(context, self.task, self.task.chars, self)
 
         return self.plan(skill, ultimate, fallback_dodge, entry=entry)
 
     def _perform_burst(self, context: CombatContext = None):
         """Q 成功后的爆发输出循环: 连续翻滚攻击 (翻滚攻击, 见 docs/research/baicang.md)。
 
-        - BURST_DIRECTION_KEY (A) 全程按住使白藏原地转身扫圈 [UNVERIFIED]
+        - 默认: 全程按住 BURST_DIRECTION_KEY (A) 使白藏原地转身扫圈 [UNVERIFIED]
+        - 视觉引导开关打开时: 每隔 STEER_CHECK_INTERVAL 读取敌人场, 朝怪群质心换方向键,
+          让翻滚追着怪群, 减少滚偏 [UNVERIFIED, 需实机调校]
         - 每次翻滚: 长按闪避 ROLL_DODGE_HOLD 后松开, 停顿 ROLL_INTERVAL [UNVERIFIED]
         - 循环受 ``ULT_FIELD_DURATION`` 限时
         - 每次翻滚后检查: deadline、is_current_char、is_dead、check_combat
@@ -117,17 +131,31 @@ class Baicang(BaseChar):
         self.logger.info(f"{_LOG_PREFIX} burst start")
         start = self._now()
         deadline = start + self.ULT_FIELD_DURATION
-        direction_key = self.BURST_DIRECTION_KEY or self.DEFAULT_DIRECTION_KEY
+        base_key = self.BURST_DIRECTION_KEY or self.DEFAULT_DIRECTION_KEY
+        vision_steer = feature_enabled(self.task, CONF_VISION_STEER)
 
         track_second_skill = self.SECOND_SKILL_MODE != "disabled"
         ready_streak = 0
         last_check = start
         last_arc = start
+        last_steer = start - self.STEER_CHECK_INTERVAL  # force an immediate first steer
+
+        held = {"key": None}
+
+        def hold(key):
+            if held["key"] == key:
+                return
+            if held["key"] is not None:
+                self.task.send_key_up(held["key"])
+            if key is not None:
+                self.task.send_key_down(key)
+            held["key"] = key
 
         try:
-            if direction_key is not None:
-                self.task.send_key_down(direction_key)
-                self.sleep(0.1)
+            if not vision_steer:
+                hold(base_key)
+                if base_key is not None:
+                    self.sleep(0.1)
 
             while self._now() < deadline:
                 if not self.is_current_char:
@@ -136,6 +164,11 @@ class Baicang(BaseChar):
                 if self.is_dead:
                     self.logger.info(f"{_LOG_PREFIX} burst end (dead)")
                     return
+
+                if vision_steer and self._now() - last_steer >= self.STEER_CHECK_INTERVAL:
+                    last_steer = self._now()
+                    field = read_enemy_field(self.task)
+                    hold(self._steer_direction_key(field, base_key))
 
                 self._single_roll()
                 self.check_combat()
@@ -173,10 +206,30 @@ class Baicang(BaseChar):
                     self.logger.info(f"{_LOG_PREFIX} skill armed (observe mode)")
                     ready_streak = 0
         finally:
-            if direction_key is not None:
-                self.task.send_key_up(direction_key)
+            if held["key"] is not None:
+                self.task.send_key_up(held["key"])
 
         self.logger.info(f"{_LOG_PREFIX} burst end")
+
+    def _steer_direction_key(self, field, base_key):
+        """Pick the movement key that rolls toward the enemy cluster centre.
+
+        ``field.centroid_x/y`` are normalised 0..1 within the viewport (0.5 is
+        centre). When detection is unavailable or the cluster sits near centre we
+        fall back to ``base_key`` (spin in place). Otherwise we hold the key toward
+        the dominant axis of the cluster offset. Camera-relative mapping is assumed
+        (screen left == character left) and is NOT recording-verified.
+        """
+        if field is None or not field.available or field.count <= 0:
+            return base_key
+        dx = field.centroid_x - 0.5
+        dy = field.centroid_y - 0.5
+        if abs(dx) < self.STEER_DEADZONE and abs(dy) < self.STEER_DEADZONE:
+            return base_key
+        if abs(dx) >= abs(dy):
+            return self.STEER_KEY_RIGHT if dx > 0 else self.STEER_KEY_LEFT
+        # screen y grows downward, so centroid above centre (dy < 0) is forward
+        return self.STEER_KEY_FORWARD if dy < 0 else self.STEER_KEY_BACK
 
     def _single_roll(self):
         """一次翻滚攻击: 长按闪避后松开, 再短暂停顿。闪避键在 finally 中保证释放。"""

@@ -1,6 +1,7 @@
 import time
 from collections.abc import Iterable
 
+from src.combat.enemy_field import CONF_SCATTER_GATHER, feature_enabled, read_enemy_field
 from src.combat.planner.context import CombatContext
 from src.combat.planner.types import FollowupStep, Planner
 
@@ -223,3 +224,61 @@ def request_chiz_route(context: CombatContext, opener: bool) -> None:
         until=_timeout_after(lambda: chiz.ABYSS_ROUTE_TIMEOUT),
         return_to_source=True,
     )
+
+
+# Scatter-triggered gather (config-gated, default OFF). All UNVERIFIED, tune live.
+SCATTER_GATHER_REQUEST_INTERVAL = 6.0  # min seconds between gather requests per gather char
+SCATTER_GATHER_ROUTE_TIMEOUT = 6.0  # route gives up and returns to source after this
+
+
+def _find_ready_gather_char(chars: Iterable):
+    """First living char that exposes a ready gather_ready() (Sakiri / Jiuyuan)."""
+    for char in chars:
+        if getattr(char, "is_dead", False):
+            continue
+        gather_ready = getattr(char, "gather_ready", None)
+        if callable(gather_ready) and gather_ready():
+            return char
+    return None
+
+
+def maybe_request_scatter_gather(
+    context: CombatContext, task, chars: Iterable, source
+) -> None:
+    """Publish a short gather route when enemies look scattered.
+
+    Called from a main DPS entry (execution time, not scoring). It reads the enemy
+    field; if the pack is scattered (or only one enemy is visible) and a gather
+    char is ready, it requests that char to cast E once and return to ``source``.
+    A per-char request cooldown prevents spamming when the cast keeps failing.
+    Every failure path returns quietly so existing behaviour is untouched.
+    """
+    if not feature_enabled(task, CONF_SCATTER_GATHER):
+        return
+    field = read_enemy_field(task)
+    if not field.available or not field.scattered:
+        return
+    gather_char = _find_ready_gather_char(chars)
+    if gather_char is None:
+        return
+
+    cooldowns = getattr(gather_char, "_cooldowns", None)
+    now = time.monotonic()
+    if cooldowns is not None and not cooldowns.is_ready("gather_request", now):
+        return
+
+    context.request_route(
+        [
+            FollowupStep.for_action(
+                gather_char,
+                Planner.ActionSlot.SKILL,
+                reason="gather scattered enemies",
+                optional=True,
+            )
+        ],
+        reason="scatter-triggered gather",
+        until=_timeout_after(SCATTER_GATHER_ROUTE_TIMEOUT),
+        return_to_source=True,
+    )
+    if cooldowns is not None:
+        cooldowns.mark_used("gather_request", SCATTER_GATHER_REQUEST_INTERVAL, now)

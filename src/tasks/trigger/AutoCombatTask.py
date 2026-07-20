@@ -4,6 +4,7 @@ from ok import Logger, TriggerTask
 from qfluentwidgets import FluentIcon
 
 from src.combat.BaseCombatTask import BaseCombatTask, NotInCombatException
+from src.combat.enemy_field import CONF_SCATTER_GATHER, CONF_VISION_STEER
 
 logger = Logger.get_logger(__name__)
 
@@ -23,11 +24,15 @@ class AutoCombatTask(BaseCombatTask, TriggerTask):
         self.default_config.update(
             {
                 self.CONF_AUTO_TARGET: True,
-                self.CONF_USE_ULT: True
+                self.CONF_USE_ULT: True,
+                CONF_VISION_STEER: False,
+                CONF_SCATTER_GATHER: False,
             }
         )
         self.config_description = {
             self.CONF_AUTO_TARGET: "关闭时仅在中键选中敌人且画面识别到 'Lv' 文字时开启战斗",
+            CONF_VISION_STEER: "实验性: 白藏大招翻滚时朝怪群方向转向, 减少滚偏 (需目标检测可用)",
+            CONF_SCATTER_GATHER: "实验性: 检测到怪群被打散时, 自动切聚怪角色放一次聚怪技能再切回",
         }
         self.op_index = 0
         self.origin_func = {}

@@ -1,5 +1,6 @@
 from src.char.BaseChar import BaseChar
 from src.combat.planner import Planner, RoleProfile
+from src.combat.skill_cooldown import SkillCooldownModel
 
 
 class Sakiri(BaseChar):
@@ -9,7 +10,7 @@ class Sakiri(BaseChar):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._last_gather_time = float("-inf")
+        self._cooldowns = SkillCooldownModel(now_fn=lambda: self._now())
 
     def describe_role(self):
         from src.combat.team_strategies import is_baicang_abyss_team
@@ -28,7 +29,11 @@ class Sakiri(BaseChar):
 
     def _gather_reuse_ready(self) -> bool:
         """True when enough time has passed to allow a re-gather outside the opener route."""
-        return self._now() - self._last_gather_time >= self.GATHER_REUSE_INTERVAL
+        return self._cooldowns.is_ready("gather")
+
+    def gather_ready(self) -> bool:
+        """Tactical-layer probe: skill up and reuse floor met (used by scatter-gather)."""
+        return self.skill_available() and self._gather_reuse_ready()
 
     def combat_plan(self, context):
         from src.combat.team_strategies import is_baicang_abyss_team
@@ -41,7 +46,7 @@ class Sakiri(BaseChar):
                 post_sleep=self.SKILL_SETTLE_DURATION,
             )
             if result:
-                self._last_gather_time = self._now()
+                self._cooldowns.mark_used("gather", self.GATHER_REUSE_INTERVAL)
             return result
 
         skill = self.planner_action(

@@ -1,12 +1,18 @@
+import time
+
 from src.char.BaseChar import BaseChar
 from src.combat.planner import CombatContext, Planner, RoleProfile
+from src.combat.skill_cooldown import SkillCooldownModel
 
 
 class Jiuyuan(BaseChar):
     SKILL_SETTLE_DURATION = 1.2
+    # Anti-spam floor for tactical gather requests; tune with recordings [UNVERIFIED].
+    GATHER_REUSE_INTERVAL = 8.0
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self._cooldowns = SkillCooldownModel(now_fn=lambda: self._now())
 
     def describe_role(self):
         from src.combat.team_strategies import is_chiz_abyss_team
@@ -18,14 +24,23 @@ class Jiuyuan(BaseChar):
             max_field_time=1.0,
         )
 
+    def gather_ready(self) -> bool:
+        """Tactical-layer probe: skill up and reuse floor met (used by scatter-gather)."""
+        return self.skill_available() and self._cooldowns.is_ready("gather")
+
     def combat_plan(self, context):
         ultimate = self.click_ultimate_action()
+
+        def _execute_skill(_):
+            result = self.click_skill(post_sleep=self.SKILL_SETTLE_DURATION)
+            if result:
+                self._cooldowns.mark_used("gather", self.GATHER_REUSE_INTERVAL)
+            return result
+
         skill = self.planner_action(
             tags={Planner.ActionTag.SKILL_ACTION},
             slot=Planner.ActionSlot.SKILL,
-            execute=lambda _: self.click_skill(
-                post_sleep=self.SKILL_SETTLE_DURATION,
-            ),
+            execute=_execute_skill,
             name=f"{self}_skill",
             reason="Jiuyuan skill with grouping settle",
             can_execute=lambda _: self.skill_available(),
@@ -58,6 +73,9 @@ class Jiuyuan(BaseChar):
     def has_bullets(self, box):
         pct = self.task.calculate_color_percentage(bullet_color, box)
         return pct > 0.1
+
+    def _now(self):
+        return time.monotonic()
 
 
 bullet_color = {

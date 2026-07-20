@@ -141,13 +141,13 @@ class TestBaicangPlannerIntegration(unittest.TestCase):
         planner.reset(chars)
         return planner
 
-    def test_skill_executed_first(self):
-        """Planner 执行 Baicang 后 action history 中有 baicang_skill。"""
+    def test_skill_executed_when_ultimate_unavailable(self):
+        """Q-first 设计: 大招不可用时, entry 落到 skill 并执行。"""
         char = PlannerTestableBaicang.create(
             skill_result=True,
-            ultimate_result=True,
+            ultimate_result=False,
             skill_available=True,
-            ultimate_available=True,
+            ultimate_available=False,
         )
         planner = self._planner([char])
         planner.perform_current_char(char)

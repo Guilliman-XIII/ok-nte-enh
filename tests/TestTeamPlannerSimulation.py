@@ -189,12 +189,12 @@ class TestTeamSimulation(unittest.TestCase):
         planner.perform_current_char(chars[2])
         self.assertGreater(chars[2].ultimate_calls, 0)
 
-    def test_baicang_skill_first(self):
-        """白藏单独执行：E 优先 → Q。"""
+    def test_baicang_ultimate_first(self):
+        """白藏单独执行：Q 优先 → burst。"""
         planner, chars = self._make_team()
         self._set_current(chars, 3)
         planner.perform_current_char(chars[3])
-        self.assertGreater(chars[3].skill_calls, 0)
+        self.assertGreater(chars[3].ultimate_calls, 0)
 
     # ---- 全角色无可用动作 ----
 
