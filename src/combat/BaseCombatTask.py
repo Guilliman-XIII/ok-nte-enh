@@ -1141,8 +1141,12 @@ class BaseCombatTask(CharElementUIMixin, CombatCheck):
         if auto_selection:
             visible_match = visible_match or self._match_visible_team_preset(count, manager)
             if visible_match is None:
-                return False
-            fixed_slots = visible_match.slots
+                # A new non-abyss battle still uses OKNTE's ordinary character detection.
+                # Strict failure applies after a saved abyss team has been bound.
+                auto_selection = False
+                fixed_slots = []
+            else:
+                fixed_slots = visible_match.slots
         elif armed_preset:
             if not self._verify_armed_team(armed_preset, count, manager):
                 return False

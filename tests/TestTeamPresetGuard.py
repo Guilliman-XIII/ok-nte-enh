@@ -285,6 +285,41 @@ class TestTeamPresetGuard(unittest.TestCase):
         )
         manager.consume_armed_team_preset.assert_not_called()
 
+    def test_auto_mode_keeps_generic_detection_for_a_new_unmatched_battle(self):
+        task = self._load_task()
+        chars = []
+        for index in range(4):
+            char = Mock()
+            char.index = index
+            char.element = Element.WHITE
+            char.char_name = f"char_{index}"
+            char.confidence = 0.95
+            char.combo_name = "builtin"
+            chars.append(char)
+        task._do_load_char.side_effect = chars
+        task._match_visible_team_preset = Mock(return_value=None)
+
+        manager = Mock()
+        manager.get_fixed_team.return_value = {
+            "enabled": False,
+            "selection_mode": "auto",
+            "active_preset_id": "team_upper",
+            "slots": [],
+            "presets": {"team_upper": {}, "team_lower": {}},
+        }
+        manager.get_armed_team_preset.return_value = None
+
+        with patch("src.combat.BaseCombatTask.CustomCharManager", return_value=manager):
+            loaded = BaseCombatTask.load_chars(task)
+
+        self.assertTrue(loaded)
+        self.assertEqual(task.active_team_preset_id, "")
+        self.assertFalse(hasattr(task, "_team_binding"))
+        self.assertEqual(
+            [call.args[1] for call in task._do_load_char.call_args_list],
+            [[]] * 4,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
