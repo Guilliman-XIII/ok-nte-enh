@@ -95,6 +95,12 @@ def request_baicang_opener(context: CombatContext) -> None:
                 optional=True,
             ),
             FollowupStep.for_action(
+                sakiri,
+                Planner.ActionSlot.ULTIMATE,
+                reason="Sakiri suppresses grouped enemies and buffs team ATK",
+                optional=True,
+            ),
+            FollowupStep.for_action(
                 hania,
                 Planner.ActionSlot.ULTIMATE,
                 reason="Hania opens the damage window",
@@ -164,6 +170,12 @@ def request_chiz_route(context: CombatContext, opener: bool) -> None:
             FollowupStep.for_entry_reaction(
                 jiuyuan,
                 reason="Jiuyuan triggers Creation after Chiz field time",
+            ),
+            FollowupStep.for_action(
+                jiuyuan,
+                Planner.ActionSlot.SKILL,
+                reason="Jiuyuan gathers enemies after Creation",
+                optional=True,
             ),
             FollowupStep.for_action(
                 jiuyuan,

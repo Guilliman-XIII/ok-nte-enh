@@ -163,6 +163,7 @@ class TestBaicangAbyssTeam(unittest.TestCase):
             self.trace,
             [
                 ("Sakiri", "E"),
+                ("Sakiri", "Q"),
                 ("Hania", "Q"),
                 ("Hania", "E"),
                 ("Daphneel", "E"),

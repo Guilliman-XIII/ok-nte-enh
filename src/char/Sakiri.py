@@ -62,7 +62,13 @@ class Sakiri(BaseChar):
         )
         return self.plan(
             self.click_ultimate_action(
-                can_execute=lambda _: not is_opener,
+                can_execute=lambda ctx: (
+                    not is_opener
+                    or ctx.strict_route_wants_action(
+                        self,
+                        slot=Planner.ActionSlot.ULTIMATE,
+                    )
+                ),
             ),
             skill,
         )

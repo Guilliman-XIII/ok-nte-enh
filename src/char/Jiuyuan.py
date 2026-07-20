@@ -37,8 +37,8 @@ class Jiuyuan(BaseChar):
         )
 
         def entry():
-            yield ultimate
             skill_result = yield skill
+            yield ultimate
             if not skill_result:
                 yield bullets
 
