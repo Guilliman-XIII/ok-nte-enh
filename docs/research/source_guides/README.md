@@ -30,3 +30,15 @@
 先读字幕（`.srt` 有时间轴），再只看相关视频片段。攻略一律视为**外部设计候选**：任何战斗代码改动
 仍需仓库测试 + 对应版本的实机录像才能确认为已验证行为。研究结论沉淀到 `docs/research/` 下对应角色
 文档（如 `baicang.md`），并标注 `[EXTERNAL]` / `[UNVERIFIED]`。
+
+## 研究成果（机制提炼）
+
+从上述字幕提炼的机制研究文档，位于上一级 `docs/research/`：
+
+| 文档 | 来源 | 内容 |
+| --- | --- | --- |
+| `baicang.md` | `BV1dB5Y6xE2q` | 白藏翻滚攻击核心机制、E 三形态、言灵字与大招 |
+| `chiz.md` | `BV1nw9iBKEVF` | 小吱本金/贷款、K 线涨跌、E 点按 vs 长按、觉醒 |
+| `jiuyuan.md` | `BV1v9RJBJELv` | 九原附着物/玫瑰子弹/清算、E 聚怪、Q 400% 清算 |
+| `team_rotation_reference.md` | `BV1xQVe6kERe` | 安魂曲队三辅助排轴（白藏竞速队借鉴，不可照搬） |
+| `hania.md` / `daphneel.md` / `adler.md` | 早期攻略 | 各辅助基础机制 |
