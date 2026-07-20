@@ -12,10 +12,12 @@ read these repository documents in this order:
 3. `docs/research/abyss_video_version_matrix.md` - which recording exercised which script revision. Never
    diagnose an old recording as a defect in a later revision without checking this matrix first.
 4. `docs/abyss_live_test_runbook.md` - the live verification procedure and acceptance boundary.
+5. `docs/research/source_guides/README.md` - local original guide subtitles and the matching local videos.
 
 The user supplied additional Chinese guide subtitles, guide videos, and live recordings while this work
-was developed. Their useful findings are condensed into the first two documents above; do not assume an
-uncommitted local media path will exist on another machine.
+was developed. The original subtitles now live in `docs/research/source_guides/`; matching local videos
+are in its ignored `videos/` directory. Their useful findings are also condensed into the first two
+documents above.
 
 ## Game And Team Primer
 

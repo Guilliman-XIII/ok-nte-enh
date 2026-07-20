@@ -33,6 +33,7 @@ thread_dumps.txt
 .Python
 test/
 logs/
+docs/research/source_guides/videos/
 build/
 develop-eggs/
 dist/
