@@ -88,11 +88,11 @@ class TestableBaicang(Baicang):
         self.post_skill_dodge_calls += 1
         self._fake_time += self.POST_SKILL_DODGE_DURATION
 
-    def _perform_burst(self, context=None, first_skill_succeeded=False):
+    def _perform_burst(self, context=None):
         if self._mock_burst:
             self._fake_time += self.ULT_FIELD_DURATION
             return
-        super()._perform_burst(context, first_skill_succeeded=first_skill_succeeded)
+        super()._perform_burst(context)
 
 
 class TestBaicangFactory(unittest.TestCase):
@@ -139,22 +139,22 @@ class TestBaicangCombatPlan(unittest.TestCase):
         gen = plan.entry()
         return next(gen)
 
-    def test_skill_entry_yielded_first(self):
+    def test_ultimate_entry_yielded_first(self):
         self.char._skill_available = True
         self.char._ultimate_available = True
         action = self._first_entry_action()
-        self.assertIn("skill", action.name)
+        self.assertIn("ultimate", action.name)
 
-    def test_ultimate_yielded_after_skill(self):
+    def test_skill_yielded_after_ultimate_fails(self):
         self.char._skill_available = True
         self.char._ultimate_available = True
         self.char._mock_burst = True
         plan = self.char.combat_plan(None)
         gen = plan.entry()
         first = next(gen)
-        self.assertIn("skill", first.name)
-        second = gen.send(True)
-        self.assertIn("ultimate", second.name)
+        self.assertIn("ultimate", first.name)
+        second = gen.send(False)  # Q fails
+        self.assertIn("skill", second.name)
 
     def test_fallback_dodge_when_both_fail(self):
         self.char._skill_available = False
@@ -162,10 +162,10 @@ class TestBaicangCombatPlan(unittest.TestCase):
         plan = self.char.combat_plan(None)
         gen = plan.entry()
         first = next(gen)
-        self.assertIn("skill", first.name)
-        second = gen.send(False)
-        self.assertIn("ultimate", second.name)
-        third = gen.send(False)
+        self.assertIn("ultimate", first.name)
+        second = gen.send(False)  # Q fails
+        self.assertIn("skill", second.name)
+        third = gen.send(False)  # E fails
         self.assertEqual(third.name, "baicang_dodge_fallback")
 
     def test_fallback_dodge_when_skill_fails_and_ultimate_unavailable(self):
@@ -175,10 +175,10 @@ class TestBaicangCombatPlan(unittest.TestCase):
         plan = self.char.combat_plan(None)
         gen = plan.entry()
         first = next(gen)
-        self.assertIn("skill", first.name)
-        second = gen.send(False)
-        self.assertIn("ultimate", second.name)
-        third = gen.send(False)
+        self.assertIn("ultimate", first.name)
+        second = gen.send(False)  # Q fails
+        self.assertIn("skill", second.name)
+        third = gen.send(False)  # E fails
         self.assertEqual(third.name, "baicang_dodge_fallback")
 
     def test_perform_burst_called_on_ultimate_success(self):
@@ -188,10 +188,9 @@ class TestBaicangCombatPlan(unittest.TestCase):
         before_time = self.char._fake_time
         plan = self.char.combat_plan(None)
         gen = plan.entry()
-        next(gen)
-        gen.send(True)
+        next(gen)  # yield ultimate
         with self.assertRaises(StopIteration):
-            gen.send(True)
+            gen.send(True)  # Q success → burst → return
         self.assertGreater(self.char._fake_time, before_time)
 
     def test_fallback_dodge_not_attract_switching(self):
@@ -222,17 +221,17 @@ class TestBaicangCombatPlan(unittest.TestCase):
         self.assertIsNone(Baicang.DEFAULT_DIRECTION_KEY)
 
     def test_post_skill_dodge_on_e_only(self):
-        """GPT5.6 MAJOR 1: E 成功但 Q 失败时有短右键输出。"""
+        """Q 失败但 E 成功时有短右键输出。"""
         self.char._skill_available = True
         self.char._ultimate_available = True
         self.char._click_skill_result = True
         self.char._click_ultimate_result = False
         plan = self.char.combat_plan(None)
         gen = plan.entry()
-        next(gen)  # yield skill
-        gen.send(True)  # skill success
+        next(gen)  # yield ultimate
+        second = gen.send(False)  # Q fails → yield skill
         with self.assertRaises(StopIteration):
-            gen.send(False)  # ultimate fail
+            gen.send(True)  # E success → post_skill_dodge
         self.assertGreater(self.char.post_skill_dodge_calls, 0)
 
     def test_first_skill_uses_short_timeout(self):
@@ -256,7 +255,7 @@ class TestBaicangBurst(unittest.TestCase):
 
     def test_burst_has_timeout(self):
         self.char.ULT_FIELD_DURATION = 0.05
-        self.char._perform_burst(None, first_skill_succeeded=True)
+        self.char._perform_burst(None)
 
     def test_burst_returns_on_char_switch(self):
         original_burst = self.char._right_click_burst
@@ -267,7 +266,7 @@ class TestBaicangBurst(unittest.TestCase):
 
         self.char._right_click_burst = burst_with_switch
         self.char.ULT_FIELD_DURATION = 0.05
-        self.char._perform_burst(None, first_skill_succeeded=True)
+        self.char._perform_burst(None)
 
     def test_burst_returns_on_death(self):
         original_burst = self.char._right_click_burst
@@ -278,12 +277,12 @@ class TestBaicangBurst(unittest.TestCase):
 
         self.char._right_click_burst = burst_with_death
         self.char.ULT_FIELD_DURATION = 0.05
-        self.char._perform_burst(None, first_skill_succeeded=True)
+        self.char._perform_burst(None)
 
     def test_not_in_combat_stops_burst(self):
         self.char._combat_active = False
         with self.assertRaises(NotInCombatException):
-            self.char._perform_burst(None, first_skill_succeeded=True)
+            self.char._perform_burst(None)
 
     def test_no_direction_key_when_default_is_none(self):
         """方向键为 None 时不发送 send_key_down/up。"""
@@ -291,7 +290,7 @@ class TestBaicangBurst(unittest.TestCase):
         self.char.BURST_DIRECTION_KEY = None
         self.char.DEFAULT_DIRECTION_KEY = None
         self.char.ULT_FIELD_DURATION = 0.05
-        self.char._perform_burst(None, first_skill_succeeded=True)
+        self.char._perform_burst(None)
         self.char.task.send_key_down.assert_not_called()
         self.char.task.send_key_up.assert_not_called()
 
@@ -300,7 +299,7 @@ class TestBaicangBurst(unittest.TestCase):
         self.char._skill_available = False
         self.char.DEFAULT_DIRECTION_KEY = "w"
         self.char.ULT_FIELD_DURATION = 0.05
-        self.char._perform_burst(None, first_skill_succeeded=True)
+        self.char._perform_burst(None)
         self.assertEqual(self.char.task.send_key_down.call_count, 1)
         self.assertEqual(self.char.task.send_key_up.call_count, 1)
 
@@ -308,7 +307,7 @@ class TestBaicangBurst(unittest.TestCase):
         self.char._skill_available = False
         self.char.SECOND_SKILL_MODE = "disabled"
         self.char.ULT_FIELD_DURATION = 0.05
-        self.char._perform_burst(None, first_skill_succeeded=True)
+        self.char._perform_burst(None)
         self.assertEqual(self.char.skill_calls, 0)
 
     def test_right_click_burst_no_direction_key(self):
@@ -337,30 +336,30 @@ class TestBaicangSecondSkill(unittest.TestCase):
 
     def test_second_skill_at_most_once(self):
         self.char._skill_available_sequence = [False, True, True, True, True, True, True, True]
-        self.char._perform_burst(None, first_skill_succeeded=True)
+        self.char._perform_burst(None)
         self.assertLessEqual(self.char.skill_calls, 1)
 
     def test_observation_mode_no_click(self):
         self.char.SECOND_SKILL_MODE = "observe"
         self.char._skill_available_sequence = [False, True, True, True, True, True, True]
-        self.char._perform_burst(None, first_skill_succeeded=True)
+        self.char._perform_burst(None)
         self.assertEqual(self.char.skill_calls, 0)
 
     def test_disabled_mode_no_tracking(self):
         self.char.SECOND_SKILL_MODE = "disabled"
         self.char._skill_available_sequence = [False, True, True, True, True, True, True, True]
-        self.char._perform_burst(None, first_skill_succeeded=True)
+        self.char._perform_burst(None)
         self.assertEqual(self.char.skill_calls, 0)
 
-    def test_second_skill_not_armed_when_first_skill_failed(self):
-        """GPT5.6 BLOCKER 5: 第一 E 失败时不启用第二 E 追踪。"""
+    def test_second_skill_always_tracked_in_execute_mode(self):
+        """Q-first 设计: 爆发期间 E 始终追踪, 不再依赖前置 E 是否成功。"""
         self.char._skill_available_sequence = [False, True, True, True, True, True, True, True]
-        self.char._perform_burst(None, first_skill_succeeded=False)
-        self.assertEqual(self.char.skill_calls, 0)
+        self.char._perform_burst(None)
+        self.assertEqual(self.char.skill_calls, 1)
 
     def test_single_frame_glitch_no_trigger(self):
         self.char._skill_available_sequence = [False, True, False, False, False, False, False]
-        self.char._perform_burst(None, first_skill_succeeded=True)
+        self.char._perform_burst(None)
         self.assertEqual(self.char.skill_calls, 0)
 
     def test_streak_reset_on_break(self):
@@ -375,7 +374,7 @@ class TestBaicangSecondSkill(unittest.TestCase):
             True,
             True,
         ]
-        self.char._perform_burst(None, first_skill_succeeded=True)
+        self.char._perform_burst(None)
         self.assertEqual(self.char.skill_calls, 1)
 
     def test_streak_threshold_triggers_once(self):
@@ -390,7 +389,7 @@ class TestBaicangSecondSkill(unittest.TestCase):
             True,
             True,
         ]
-        self.char._perform_burst(None, first_skill_succeeded=True)
+        self.char._perform_burst(None)
         self.assertEqual(self.char.skill_calls, 1)
 
 

@@ -101,15 +101,12 @@ class Baicang(BaseChar):
         )
 
         def entry():
-            skill_result = yield skill
-            if skill_result and self.ultimate_available():
-                self.sleep(0.3)
-
             ultimate_result = yield ultimate
             if ultimate_result:
-                self._perform_burst(context, first_skill_succeeded=bool(skill_result))
+                self._perform_burst(context)
                 return
 
+            skill_result = yield skill
             if skill_result:
                 self._post_skill_dodge()
             else:
@@ -117,24 +114,22 @@ class Baicang(BaseChar):
 
         return self.plan(skill, ultimate, fallback_dodge, entry=entry)
 
-    def _perform_burst(self, context: CombatContext = None, first_skill_succeeded: bool = False):
+    def _perform_burst(self, context: CombatContext = None):
         """Q 成功后的爆发输出循环 (参考 Nanally.perform_in_ult)。
 
         - BURST_DIRECTION_KEY (或 DEFAULT_DIRECTION_KEY) 在整个循环期间持续按住
         - SHIFT_DASH_INTERVAL > 0 时周期性点按 Shift 触发冲刺 [UNVALIDATED]
         - 循环受 ``ULT_FIELD_DURATION`` 限时
         - 每个分片后检查: deadline、is_current_char、is_dead、check_combat
-        - 第二 E 保护链仅在第一 E 真实成功时启用
+        - E 冷却好后自动释放 (SECOND_SKILL_MODE=execute)
         """
-        self.logger.info(
-            f"{_LOG_PREFIX} burst start (first_skill_succeeded={first_skill_succeeded})"
-        )
+        self.logger.info(f"{_LOG_PREFIX} burst start")
         start = self._now()
         deadline = start + self.ULT_FIELD_DURATION
         direction_key = self.BURST_DIRECTION_KEY or self.DEFAULT_DIRECTION_KEY
         shift_dash_enabled = self.SHIFT_DASH_INTERVAL > 0 and direction_key is not None
 
-        track_second_skill = self.SECOND_SKILL_MODE != "disabled" and first_skill_succeeded
+        track_second_skill = self.SECOND_SKILL_MODE != "disabled"
         cooldown_confirmed = False
         ready_streak = 0
         second_skill_done = False

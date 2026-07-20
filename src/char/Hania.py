@@ -60,7 +60,7 @@ class Hania(BaseChar):
             skill_result = yield skill
             if skill_result:
                 self.logger.info(f"{_LOG_PREFIX} 咕咕子 deployed")
-                self.sleep(0.5)
+                self.sleep(0.3)
             self._request_baicang_return(context)
 
         return self.plan(ultimate, skill, entry=entry)
