@@ -817,6 +817,26 @@ class CustomCharManager:
             fixed_team["enabled"] = True
             return self._commit_fixed_team(fixed_team)
 
+    def set_team_selection_mode(self, mode: str) -> bool:
+        """Persist the abyss-team selection policy without changing presets.
+
+        ``auto`` is opt-in.  The combat runtime then selects a unique saved
+        four-member preset from the current HUD, including an abyss handoff.
+        Manual mode retains the one-shot "arm for next battle" workflow.
+        """
+        mode = self._as_text(mode).strip().lower()
+        if mode not in {"manual", "auto"}:
+            return False
+
+        with self._data_lock:
+            fixed_team = self._normalize_fixed_team_config(self.db.get("fixed_team"))
+            fixed_team["selection_mode"] = mode
+            if mode == "auto":
+                # A stale manual arm must not override explicit auto selection.
+                fixed_team["armed_for_next_battle"] = ""
+                fixed_team["enabled"] = False
+            return self._commit_fixed_team(fixed_team)
+
     def get_armed_team_preset(self) -> dict | None:
         with self._data_lock:
             fixed_team = self._normalize_fixed_team_config(self.db.get("fixed_team"))

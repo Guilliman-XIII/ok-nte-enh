@@ -5,7 +5,7 @@ from ok import og
 from ok.gui.widget.CustomTab import CustomTab
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QColor, QPixmap
-from PySide6.QtWidgets import QGraphicsDropShadowEffect, QHBoxLayout, QVBoxLayout
+from PySide6.QtWidgets import QCheckBox, QGraphicsDropShadowEffect, QHBoxLayout, QVBoxLayout
 from qfluentwidgets import (
     BodyLabel,
     CardWidget,
@@ -419,11 +419,15 @@ class TeamManagerTab(CustomTab):
         self.tr_preset_placeholder = og.app.tr("选择深渊队伍")
         self.tr_save_preset = og.app.tr("保存预设")
         self.tr_arm_preset = og.app.tr("用于下一场")
+        self.tr_auto_dual_team = og.app.tr("深渊自动双队")
         self.tr_preset_incomplete = og.app.tr("预设必须填写四名不同角色")
         self.tr_preset_save_failed = og.app.tr("队伍预设保存失败，请检查配置文件权限")
         self.tr_preset_arm_failed = og.app.tr("无法武装该预设，请先完整保存四名角色")
         self.tr_preset_saved = og.app.tr("队伍预设已保存")
         self.tr_preset_armed = og.app.tr("下一场已启用严格队伍校验")
+        self.tr_fixed_team_status_auto = og.app.tr(
+            '<span style="color: #2ecc71;">● 深渊自动双队：严格识别已启用</span>'
+        )
         self.tr_fill_failed_title = og.app.tr("没有可用扫描结果")
         self.tr_fill_failed_desc = og.app.tr("先扫描并关联特征或手动填写")
         self.tr_fill_partial_title = og.app.tr("已填入扫描结果")
@@ -593,6 +597,9 @@ class TeamManagerTab(CustomTab):
         self.arm_preset_btn = PrimaryPushButton(FluentIcon.PLAY, self.tr_arm_preset, self)
         self.arm_preset_btn.clicked.connect(self.on_arm_team_preset)
         self.team_preset_row.addWidget(self.arm_preset_btn)
+        self.auto_dual_team_check = QCheckBox(self.tr_auto_dual_team, self)
+        self.auto_dual_team_check.toggled.connect(self.on_auto_dual_team_toggled)
+        self.team_preset_row.addWidget(self.auto_dual_team_check)
         self.fixed_team_layout.addLayout(self.team_preset_row)
 
         self.fixed_team_slots_layout = QHBoxLayout()
@@ -684,11 +691,17 @@ class TeamManagerTab(CustomTab):
         enabled = fixed_team.get("enabled", False)
         active_id = fixed_team.get("active_preset_id", "")
         armed_id = fixed_team.get("armed_for_next_battle", "")
+        auto_selection = fixed_team.get("selection_mode") == "auto"
         presets = fixed_team.get("presets", {})
 
         _, filled_count = self._collect_fixed_team_slots()
 
-        if armed_id and armed_id in presets:
+        if auto_selection:
+            self.fixed_team_status.setText(self.tr_fixed_team_status_auto)
+            self.scan_status.setText(self.tr_scan_status_paused)
+            self.save_fixed_team_btn.setText(self.tr_update_fixed_team)
+            self.disable_fixed_team_btn.setEnabled(False)
+        elif armed_id and armed_id in presets:
             name = presets[armed_id].get("name", armed_id)
             self.fixed_team_status.setText(self.tr_fixed_team_status_armed.format(name=name))
             self.scan_status.setText(self.tr_scan_status_paused)
@@ -714,6 +727,9 @@ class TeamManagerTab(CustomTab):
 
     def refresh_fixed_team_state(self):
         fixed_team = self.manager.get_fixed_team()
+        self.auto_dual_team_check.blockSignals(True)
+        self.auto_dual_team_check.setChecked(fixed_team.get("selection_mode") == "auto")
+        self.auto_dual_team_check.blockSignals(False)
         active_id = fixed_team.get("active_preset_id", "")
         if active_id:
             preset_index = self.team_preset_combo.findData(active_id)
@@ -727,6 +743,16 @@ class TeamManagerTab(CustomTab):
             char_id = slot.get("char_id", "")
             card.set_data(char_id, slot.get("combo_id", ""))
         self.update_fixed_team_status()
+
+    def on_auto_dual_team_toggled(self, enabled: bool):
+        mode = "auto" if enabled else "manual"
+        if not self.manager.set_team_selection_mode(mode):
+            self.auto_dual_team_check.blockSignals(True)
+            self.auto_dual_team_check.setChecked(not enabled)
+            self.auto_dual_team_check.blockSignals(False)
+            self._show_bar("", self.tr_preset_save_failed, success=False)
+            return
+        self.refresh_fixed_team_state()
 
     def on_team_preset_selected(self, _index=None):
         preset_id, _ = self._selected_team_preset()

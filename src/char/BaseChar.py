@@ -115,6 +115,9 @@ class BaseChar:
 
     def perform(self):
         """执行当前角色的主要战斗行动序列。"""
+        if not self._ensure_team_binding():
+            self.logger.debug(f"skip stale char perform while team binding changes: {self.index}")
+            return
         self.last_perform = time.time()
         if self.has_intro:
             self.add_intro_motion_freeze(self.last_perform)
@@ -133,6 +136,8 @@ class BaseChar:
             self,
             getattr(self.task, "chars", ()),
         ):
+            return
+        if not self._ensure_team_binding():
             return
         now = time.time()
         entered_field = self._default_arc_switch_marker != self.last_switch_time
@@ -169,7 +174,12 @@ class BaseChar:
         Args:
             interval (float, optional): 点击间隔。默认为 0.1。
         """
-        self.click(interval=interval)
+        if self._ensure_team_binding():
+            self.click(interval=interval)
+
+    def _ensure_team_binding(self) -> bool:
+        ensure = getattr(self.task, "ensure_team_binding", None)
+        return True if ensure is None else ensure()
 
     @property
     def click(self):
@@ -523,6 +533,16 @@ class BaseChar:
                 return result
 
             if available():
+                # A planner checkpoint can run before combat uncertainty or a
+                # queued sound action resolves. Recheck at the physical-input
+                # boundary so dodge/counter gets the last priority window.
+                if not self._ensure_team_binding():
+                    result["status"] = "team_rebinding"
+                    return result
+                self.task.sleep_check()
+                if not self._ensure_team_binding():
+                    result["status"] = "team_rebinding"
+                    return result
                 self.logger.debug(f"{action_type} available click/send")
                 action_time = time.time()
                 sent = send_action()
@@ -934,6 +954,8 @@ class BaseChar:
         """
         start = time.time()
         while time.time() - start < duration:
+            if not self._ensure_team_binding():
+                break
             if click_skill_if_ready_and_return and self.skill_available():
                 return self.click_skill()
             # if until_cycle_full and self.is_cycle_full():
@@ -952,6 +974,8 @@ class BaseChar:
         """
         start = time.time()
         while time.time() - start < duration:
+            if not self._ensure_team_binding():
+                break
             self.send_key(key, interval=interval)
 
     def continues_right_click(self, duration, interval=0.1, direction_key=None):
@@ -969,6 +993,8 @@ class BaseChar:
                 self.sleep(0.1)
             start = time.time()
             while time.time() - start < duration:
+                if not self._ensure_team_binding():
+                    break
                 self.click(interval=interval, key="right")
         finally:
             if direction_key is not None:
@@ -977,8 +1003,11 @@ class BaseChar:
     def normal_attack(self):
         """执行一次普通攻击。"""
         self.logger.debug("normal attack")
+        if not self._ensure_team_binding():
+            return False
         self.check_combat()
         self.click()
+        return True
 
     def heavy_attack(self, duration=0.6):
         """执行一次重攻击。

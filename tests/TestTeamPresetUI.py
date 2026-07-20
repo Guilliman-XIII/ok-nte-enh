@@ -66,6 +66,27 @@ class TestTeamPresetUI(unittest.TestCase):
         tab._show_bar.assert_called_once_with("", "arm failed", success=False)
         tab.refresh_fixed_team_state.assert_not_called()
 
+    def test_auto_dual_team_toggle_persists_mode_and_refreshes(self):
+        tab = self._tab()
+        tab.auto_dual_team_check = Mock()
+        tab.manager.set_team_selection_mode.return_value = True
+
+        TeamManagerTab.on_auto_dual_team_toggled(tab, True)
+
+        tab.manager.set_team_selection_mode.assert_called_once_with("auto")
+        tab.refresh_fixed_team_state.assert_called_once()
+        tab._show_bar.assert_not_called()
+
+    def test_auto_dual_team_toggle_restores_checkbox_after_save_failure(self):
+        tab = self._tab()
+        tab.auto_dual_team_check = Mock()
+        tab.manager.set_team_selection_mode.return_value = False
+
+        TeamManagerTab.on_auto_dual_team_toggled(tab, True)
+
+        tab.auto_dual_team_check.setChecked.assert_called_once_with(False)
+        tab._show_bar.assert_called_once_with("", "save failed", success=False)
+
 
 if __name__ == "__main__":
     unittest.main()

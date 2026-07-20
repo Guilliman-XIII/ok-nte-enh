@@ -482,6 +482,26 @@ class TestCustomCharCore(unittest.TestCase):
         self.assertIsNone(manager.match_team_preset(char_ids))
         self.assertIsNone(manager.match_team_preset(char_ids[:3]))
 
+    def test_auto_team_selection_clears_stale_manual_arm_but_keeps_presets(self):
+        manager = CustomCharManager()
+        slots = [
+            {"char_id": f"char_{index}", "combo_id": PREDEFINED_CHARACTER_ID}
+            for index in range(4)
+        ]
+        for index in range(4):
+            manager.create_character(f"char_{index}", PREDEFINED_CHARACTER_ID)
+        self.assertTrue(manager.set_team_preset("team_auto", "auto", slots, activate=True))
+        self.assertTrue(manager.arm_team_preset("team_auto"))
+
+        self.assertTrue(manager.set_team_selection_mode("auto"))
+        configured = manager.get_fixed_team()
+
+        self.assertEqual(configured["selection_mode"], "auto")
+        self.assertEqual(configured["armed_for_next_battle"], "")
+        self.assertIn("team_auto", configured["presets"])
+        self.assertTrue(manager.set_team_selection_mode("manual"))
+        self.assertFalse(manager.set_team_selection_mode("unexpected"))
+
 
 if __name__ == "__main__":
     unittest.main()

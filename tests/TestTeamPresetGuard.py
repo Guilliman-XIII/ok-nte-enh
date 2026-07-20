@@ -4,7 +4,7 @@ from unittest.mock import Mock, PropertyMock, patch
 import numpy as np
 
 from src.char.BaseChar import Element
-from src.combat.BaseCombatTask import BaseCombatTask
+from src.combat.BaseCombatTask import BaseCombatTask, VisibleTeamMatch
 
 
 class TestTeamPresetGuard(unittest.TestCase):
@@ -32,6 +32,16 @@ class TestTeamPresetGuard(unittest.TestCase):
             {"char_name": char_id} if char_id else None
         )
         return manager
+
+    @staticmethod
+    def _visible_match(preset_id="team_a", ids=None):
+        ids = tuple(ids or ("char_0", "char_1", "char_2", "char_3"))
+        return VisibleTeamMatch(
+            preset_id=preset_id,
+            preset_name=preset_id,
+            char_ids=ids,
+            slots=tuple({"char_id": char_id, "combo_id": ""} for char_id in ids),
+        )
 
     def test_exact_four_slot_match_passes(self):
         task = self._task()
@@ -96,6 +106,78 @@ class TestTeamPresetGuard(unittest.TestCase):
         manager.match_feature.assert_not_called()
         task.log_error.assert_called_once()
 
+    def test_visible_auto_match_remaps_saved_combo_to_actual_slot_order(self):
+        task = self._task()
+        manager = self._manager()
+        ids = ("char_2", "char_0", "char_3", "char_1")
+        manager.match_feature.side_effect = [(True, char_id, 0.95) for char_id in ids]
+        manager.match_team_preset.return_value = "team_a"
+        manager.get_team_preset.return_value = {
+            "preset_id": "team_a",
+            "name": "Team A",
+            "slots": [
+                {"char_id": f"char_{index}", "combo_id": f"combo_{index}"}
+                for index in range(4)
+            ],
+        }
+        feature = np.ones((8, 8, 3), dtype=np.uint8)
+
+        with (
+            patch.object(
+                BaseCombatTask,
+                "frame",
+                new_callable=PropertyMock,
+                return_value=np.zeros((32, 32, 3), dtype=np.uint8),
+            ),
+            patch(
+                "src.combat.BaseCombatTask.get_char_feature_by_pos",
+                return_value=(feature, 1920, 1080),
+            ),
+        ):
+            match = task._match_visible_team_preset(4, manager)
+
+        self.assertEqual(match.char_ids, ids)
+        self.assertEqual(
+            match.slots,
+            tuple({"char_id": char_id, "combo_id": f"combo_{char_id[-1]}"} for char_id in ids),
+        )
+
+    def test_auto_handoff_requires_two_identical_complete_frames(self):
+        task = self._task()
+        previous = self._visible_match("upper")
+        following = self._visible_match("lower", ("char_3", "char_2", "char_1", "char_0"))
+        task._team_binding = previous
+        task._pending_team_binding = None
+        task._team_binding_last_check = 0.0
+        task._in_animation = False
+        task.in_team = Mock(return_value=(True, 0, 4))
+        task._match_visible_team_preset = Mock(side_effect=[following, following])
+        task._is_auto_team_selection_enabled = Mock(return_value=True)
+        task.load_chars = Mock(return_value=True)
+
+        self.assertFalse(task.ensure_team_binding(force=True))
+        task.load_chars.assert_not_called()
+        self.assertEqual(task._pending_team_binding, following)
+
+        self.assertFalse(task.ensure_team_binding(force=True))
+        task.load_chars.assert_called_once_with(visible_match=following)
+
+    def test_manual_handoff_clears_old_routes_without_rebinding(self):
+        task = self._task()
+        task._team_binding = self._visible_match("upper")
+        task._pending_team_binding = None
+        task._team_binding_last_check = 0.0
+        task._in_animation = False
+        task.in_team = Mock(return_value=(True, 0, 4))
+        task._match_visible_team_preset = Mock(
+            return_value=self._visible_match("lower", ("char_3", "char_2", "char_1", "char_0"))
+        )
+        task._is_auto_team_selection_enabled = Mock(return_value=False)
+        task.combat_planner = Mock()
+
+        self.assertFalse(task.ensure_team_binding(force=True))
+        task.combat_planner.reset.assert_called_once_with([])
+
     def _load_task(self):
         task = object.__new__(BaseCombatTask)
         task.load_hotkey = Mock()
@@ -159,6 +241,49 @@ class TestTeamPresetGuard(unittest.TestCase):
         manager.consume_armed_team_preset.assert_called_once_with("team_a")
         self.assertEqual(task.active_team_preset_id, "team_a")
         task.combat_planner.reset.assert_called_once_with(chars)
+
+    def test_auto_load_uses_visible_slot_order_and_keeps_all_presets_available(self):
+        task = self._load_task()
+        visible = self._visible_match(
+            "team_lower",
+            ("char_3", "char_1", "char_0", "char_2"),
+        )
+        chars = []
+        for index in range(4):
+            char = Mock()
+            char.index = index
+            char.element = Element.WHITE
+            char.char_name = f"char_{index}"
+            char.confidence = 0.95
+            char.combo_name = "builtin"
+            chars.append(char)
+        task._do_load_char.side_effect = chars
+
+        manager = Mock()
+        manager.get_fixed_team.return_value = {
+            "enabled": False,
+            "selection_mode": "auto",
+            "active_preset_id": "team_upper",
+            "slots": [],
+            "presets": {"team_upper": {}, "team_lower": {}},
+        }
+        manager.get_armed_team_preset.return_value = None
+
+        with patch("src.combat.BaseCombatTask.CustomCharManager", return_value=manager):
+            loaded = BaseCombatTask.load_chars(task, visible_match=visible)
+
+        self.assertTrue(loaded)
+        self.assertEqual(task.active_team_preset_id, "team_lower")
+        self.assertEqual(task._team_binding, visible)
+        self.assertEqual(
+            [call.args[0] for call in task._do_load_char.call_args_list],
+            list(range(4)),
+        )
+        self.assertEqual(
+            [call.args[1] for call in task._do_load_char.call_args_list],
+            [visible.slots] * 4,
+        )
+        manager.consume_armed_team_preset.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -53,12 +53,23 @@ class TeamSurvivalStatus(Enum):
     WIPED = 3  # 团灭
 
 
+@dataclass(frozen=True)
+class VisibleTeamMatch:
+    """A complete, unique mapping from the visible HUD slots to one preset."""
+
+    preset_id: str
+    preset_name: str
+    char_ids: tuple[str, ...]
+    slots: tuple[dict, ...]
+
+
 class BaseCombatTask(CharElementUIMixin, CombatCheck):
     """基础战斗任务类，封装了游戏"鸣潮"中角色自动化操作的通用逻辑。"""
 
     hot_key_verified = False  # 热键是否已验证
     FREEZE_DURATION_RETENTION_SECONDS = 20 * 60
     STRICT_TEAM_MATCH_THRESHOLD = 0.65
+    TEAM_BINDING_CHECK_INTERVAL = 0.25
     _runtime_identity_logged = False
 
     element_reactions = (
@@ -106,6 +117,9 @@ class BaseCombatTask(CharElementUIMixin, CombatCheck):
         self.element_reaction_counts = {}
         self._strict_team_last_error = ""
         self.active_team_preset_id = ""
+        self._team_binding: VisibleTeamMatch | None = None
+        self._pending_team_binding: VisibleTeamMatch | None = None
+        self._team_binding_last_check = 0.0
         self.combat_planner = CombatPlanner(self)
         self.clear_element_reactions()
         self.preheat_element_template_cache_async()
@@ -469,6 +483,9 @@ class BaseCombatTask(CharElementUIMixin, CombatCheck):
         log_prefix="switch char",
         time_out=10,
     ):
+        if not self.ensure_team_binding():
+            logger.info(f"{log_prefix} cancelled while team binding changes")
+            return False
         current_char_name = self._get_char_log_name(current_char) if current_char else "None"
         switch_to.has_intro = has_intro
         intro_replanned = False
@@ -543,6 +560,9 @@ class BaseCombatTask(CharElementUIMixin, CombatCheck):
                             f"has_intro {switch_to.has_intro}"
                         )
 
+                if not self.ensure_team_binding():
+                    logger.info(f"{log_prefix} cancelled while team binding changes")
+                    return False
                 self.send_key(
                     switch_to.index + 1,
                     action_name="switch_char_send",
@@ -574,6 +594,7 @@ class BaseCombatTask(CharElementUIMixin, CombatCheck):
             post_action(switch_to, has_intro)
 
         logger.info(f"{log_prefix} end {(time.time() - start_time):.3f}s")
+        return True
 
     def _mark_dead_char_if_detected(self, switch_to: "BaseChar"):
         if self.find_confirm(self.box_of_screen(0.655, 0.694, 0.709, 0.787, hcenter=True)):
@@ -849,6 +870,10 @@ class BaseCombatTask(CharElementUIMixin, CombatCheck):
         if not self.sleep_check_skip.check_combat:
             self.check_combat()
 
+    def can_sound_trigger(self) -> bool:
+        """Reject audio reactions while the game cannot accept a dodge input."""
+        return bool(self._in_combat and not self.in_animation)
+
     def _apply_sound_config(self, dodge_action=ACTION_UNSET, counter_action=ACTION_UNSET):
         sound_context = SoundCombatContext()
         if self.sound_config:
@@ -943,6 +968,131 @@ class BaseCombatTask(CharElementUIMixin, CombatCheck):
         self.log_info(f"队伍预设校验通过：{preset_name}")
         return True
 
+    @staticmethod
+    def _slots_in_visible_order(preset: dict, char_ids: tuple[str, ...]) -> tuple[dict, ...] | None:
+        preset_slots = preset.get("slots", []) if isinstance(preset, dict) else []
+        by_char_id = {
+            slot.get("char_id", ""): slot
+            for slot in preset_slots
+            if isinstance(slot, dict) and slot.get("char_id", "")
+        }
+        if len(by_char_id) != 4 or any(char_id not in by_char_id for char_id in char_ids):
+            return None
+        return tuple(
+            {
+                "char_id": char_id,
+                "combo_id": by_char_id[char_id].get("combo_id", ""),
+            }
+            for char_id in char_ids
+        )
+
+    def _match_visible_team_preset(self, count: int, manager) -> VisibleTeamMatch | None:
+        """Identify every HUD slot and resolve exactly one saved four-member preset."""
+        if count != 4:
+            self._report_strict_team_error(f"自动双队要求四人队伍，当前识别到{count}人")
+            return None
+
+        frame = self.frame
+        char_ids: list[str] = []
+        for index in range(4):
+            feature_mat, _, _ = get_char_feature_by_pos(self, index, frame=frame)
+            if feature_mat is None or feature_mat.size <= 0:
+                self._report_strict_team_error(f"自动双队的{index + 1}号位未截取到头像")
+                return None
+            matched, char_id, confidence = manager.match_feature(
+                self,
+                feature_mat,
+                threshold=self.STRICT_TEAM_MATCH_THRESHOLD,
+            )
+            if not matched or not char_id:
+                self._report_strict_team_error(
+                    f"自动双队的{index + 1}号位无法高置信识别（{confidence:.2f}）"
+                )
+                return None
+            char_ids.append(char_id)
+
+        visible_ids = tuple(char_ids)
+        preset_id = manager.match_team_preset(visible_ids)
+        if not preset_id:
+            self._report_strict_team_error("当前四人头像未唯一匹配任何已保存深渊预设")
+            return None
+        preset = manager.get_team_preset(preset_id)
+        slots = self._slots_in_visible_order(preset, visible_ids)
+        if not preset or slots is None:
+            self._report_strict_team_error(f"深渊预设{preset_id}缺少完整槽位映射")
+            return None
+
+        self._strict_team_last_error = ""
+        return VisibleTeamMatch(
+            preset_id=preset_id,
+            preset_name=preset.get("name") or preset_id,
+            char_ids=visible_ids,
+            slots=slots,
+        )
+
+    def _record_team_binding(self, match: VisibleTeamMatch | None) -> None:
+        self._team_binding = match
+        self._pending_team_binding = None
+        self._team_binding_last_check = time.monotonic()
+        if match is not None:
+            self.active_team_preset_id = match.preset_id
+            self.log_info(
+                f"队伍绑定：{match.preset_name} / 槽位 {' -> '.join(match.char_ids)}"
+            )
+
+    def _is_auto_team_selection_enabled(self) -> bool:
+        return CustomCharManager().get_fixed_team().get("selection_mode") == "auto"
+
+    def ensure_team_binding(self, *, force: bool = False) -> bool:
+        """Prevent stale actions and rebind after a stable abyss roster transition.
+
+        A false result tells the caller to abandon its current character object.
+        This is necessary because a successful rebind replaces the team objects
+        and clears planner routes owned by the previous abyss half.
+        """
+        binding = getattr(self, "_team_binding", None)
+        if binding is None or self.in_animation:
+            return True
+
+        now = time.monotonic()
+        last_check = getattr(self, "_team_binding_last_check", 0.0)
+        if not force and now - last_check < self.TEAM_BINDING_CHECK_INTERVAL:
+            return True
+        self._team_binding_last_check = now
+
+        in_team, _, count = self.in_team()
+        if not in_team:
+            self._report_strict_team_error("队伍界面暂不可用，已暂停旧队伍输入")
+            return False
+
+        manager = CustomCharManager()
+        visible = self._match_visible_team_preset(count, manager)
+        if visible is None:
+            return False
+        if visible == binding:
+            self._pending_team_binding = None
+            return True
+
+        if not self._is_auto_team_selection_enabled():
+            self.combat_planner.reset([])
+            self._report_strict_team_error(
+                f"当前队伍已从{binding.preset_name}变为{visible.preset_name}，"
+                "未启用自动双队，已停止旧策略输入"
+            )
+            return False
+
+        # One transition frame is not enough to rebuild a live combat plan.
+        # Keep every old input blocked until the next complete frame agrees.
+        if getattr(self, "_pending_team_binding", None) != visible:
+            self._pending_team_binding = visible
+            self.log_info(f"检测到队伍交接候选：{visible.preset_name}，等待稳定确认")
+            return False
+
+        self.log_info(f"队伍交接确认：{binding.preset_name} -> {visible.preset_name}")
+        if not self.load_chars(visible_match=visible):
+            self._report_strict_team_error("队伍交接重绑失败，已停止旧策略输入")
+        return False
+
     def _do_load_char(self, index: int, fixed_slots) -> "BaseChar":
         fixed_slot = safe_get(fixed_slots, index)
         fixed_char_id = ""
@@ -969,7 +1119,7 @@ class BaseCombatTask(CharElementUIMixin, CombatCheck):
 
         return get_char_by_pos(self, box_scaled, index, safe_get(self.chars, index))
 
-    def load_chars(self) -> bool:
+    def load_chars(self, visible_match: VisibleTeamMatch | None = None) -> bool:
         """加载队伍中的角色信息。"""
         ret = False
         now = time.perf_counter()
@@ -987,7 +1137,13 @@ class BaseCombatTask(CharElementUIMixin, CombatCheck):
         manager = CustomCharManager()
         fixed_team = manager.get_fixed_team()
         armed_preset = manager.get_armed_team_preset()
-        if armed_preset:
+        auto_selection = fixed_team.get("selection_mode") == "auto"
+        if auto_selection:
+            visible_match = visible_match or self._match_visible_team_preset(count, manager)
+            if visible_match is None:
+                return False
+            fixed_slots = visible_match.slots
+        elif armed_preset:
             if not self._verify_armed_team(armed_preset, count, manager):
                 return False
             fixed_slots = armed_preset["slots"]
@@ -1008,7 +1164,10 @@ class BaseCombatTask(CharElementUIMixin, CombatCheck):
 
         elements = [char.element for char in new_chars]
 
-        if armed_preset:
+        if auto_selection:
+            self.active_team_preset_id = visible_match.preset_id
+            self.log_info(f"自动双队选择：{visible_match.preset_name}")
+        elif armed_preset:
             consumed = manager.consume_armed_team_preset(armed_preset["preset_id"])
             if not consumed:
                 self._report_strict_team_error("无法安全消费下一场武装状态，请重新保存预设")
@@ -1042,6 +1201,17 @@ class BaseCombatTask(CharElementUIMixin, CombatCheck):
             self.combat_start = time.time()
             ret = True
             self._apply_sound_config()
+            if auto_selection:
+                self._record_team_binding(visible_match)
+            elif armed_preset:
+                self._record_team_binding(
+                    VisibleTeamMatch(
+                        preset_id=armed_preset["preset_id"],
+                        preset_name=armed_preset.get("name") or armed_preset["preset_id"],
+                        char_ids=tuple(slot["char_id"] for slot in armed_preset["slots"]),
+                        slots=tuple(armed_preset["slots"]),
+                    )
+                )
         logger.debug(f"load_chars cost {time.perf_counter() - now:.3f}s")
         return ret
 
