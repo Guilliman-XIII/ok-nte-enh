@@ -1,28 +1,32 @@
 # Local Guide Source Material
 
-This directory keeps the guide material used to derive the initial Baicang speed-team behavior. It is
-available to local coding agents working in this checkout.
+本目录集中保存用于推导战斗行为的攻略素材（全部来自 UP 主「打游戏的老二」）。所有视频统一放在
+`videos/`，不再分散到其他文件夹。
 
-## Included Subtitle Transcripts
+## 攻略清单
 
-- `白藏攻略字幕.txt`
-- `早雾攻略字幕.txt`
-- `达芙蒂尔攻略字幕.txt`
+| 角色/主题 | Bilibili ID | 标题 | 字幕 |
+| --- | --- | --- | --- |
+| 白藏 | `BV1dB5Y6xE2q` | 神秘翻滚男，白藏详细攻略 | `白藏攻略字幕.txt` |
+| 早雾 | `BV16o5P6DEru` | 早雾详细攻略 | `早雾攻略字幕.txt` |
+| 达芙蒂尔 | `BV1vHLb61Ewb` | 达芙蒂尔详细攻略 | `达芙蒂尔攻略字幕.txt` |
+| 小吱 | `BV1nw9iBKEVF` | 挣钱能手，小吱详细攻略 | `小吱详细攻略 BV1nw9iBKEVF.ai-zh.srt` |
+| 九原 | `BV1v9RJBJELv` | 九原详细攻略 | `九原详细攻略 BV1v9RJBJELv.ai-zh.srt` |
+| 队伍手法 | `BV1xQVe6kERe` | 安魂曲+达芙蒂尔+早雾+哈尼娅 排轴手法 | `安魂曲达芙蒂尔早雾哈尼娅手法 BV1xQVe6kERe.ai-zh.srt` |
 
-## Local Video Copies
+队伍手法视频的主 C 是安魂曲（用户没有），其余三名辅助与白藏竞速队相同；只用于借鉴辅助的打法思路，
+不直接套用（手操手法未必适合脚本）。
 
-The matching original videos are in `videos/` and use the following Bilibili IDs in their filenames:
+## 文件说明
 
-- Baicang: `BV1dB5Y6xE2q`
-- Sakiri: `BV16o5P6DEru`
-- Daphneel: `BV1vHLb61Ewb`
+- `videos/*.mp4`：原始视频，约 670MB+，**不入 git**（已在 `.gitignore`）。
+- `videos/*.jpg`：视频封面，随 videos/ 一并忽略。
+- `*.txt`：前三条攻略的人工整理字幕（无时间轴）。
+- `*.ai-zh.srt`：后三条攻略的 AI 中文字幕，**带时间轴**，可直接用于建立手法时间线。
+- `*.info.json`：yt-dlp 下载元数据（含过期链接，无保留价值），**不入 git**。
 
-Videos are deliberately ignored by Git because they are approximately 670 MB in total. They are local
-evidence, not a repository dependency. The committed transcripts and the synthesized research documents
-remain the durable handoff record.
+## 使用方式
 
-## How To Use Them
-
-Read the transcript first, then inspect only the relevant video segment. Treat guides as external design
-candidates. Any combat-code change still needs repository tests and a version-bound live recording before
-it is accepted as verified behavior.
+先读字幕（`.srt` 有时间轴），再只看相关视频片段。攻略一律视为**外部设计候选**：任何战斗代码改动
+仍需仓库测试 + 对应版本的实机录像才能确认为已验证行为。研究结论沉淀到 `docs/research/` 下对应角色
+文档（如 `baicang.md`），并标注 `[EXTERNAL]` / `[UNVERIFIED]`。

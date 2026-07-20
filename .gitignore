@@ -34,6 +34,7 @@ thread_dumps.txt
 test/
 logs/
 docs/research/source_guides/videos/
+docs/research/source_guides/*.info.json
 build/
 develop-eggs/
 dist/
