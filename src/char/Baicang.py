@@ -14,17 +14,16 @@ _LOG_PREFIX = "[Baicang]"
 
 
 class Baicang(BaseChar):
-    """Baicang main DPS with bounded normal-attack baseline and optional Shift-AOE.
+    """Baicang main DPS. Q burst uses rolling attacks (翻滚攻击), not normal attacks.
 
-    The default output is conservative bounded left-click normal attacks with E/Q
-    gating. Sound-triggered dodge and counter logic remains owned by BaseCombatTask.
-
-    Shift-AOE spin (player technique, currently DISABLED):
-      The player holds Shift continuously AND holds a direction key (A) to
-      spin in place, sweeping AOE around grouped enemies. This relies on
-      real-time visual adjustment the script cannot do, so it is disabled by
-      default. Re-enable BURST_DIRECTION_KEY / BURST_HOLD_SHIFT once the
-      exact input pattern is taught and verified against a recording.
+    Normal attacks scatter enemies (2nd hit knocks back, 5th launches), so the
+    burst instead chains rolling attacks: hold a direction key and rhythmically
+    long-press then release dodge. Sound-triggered dodge/counter stays owned by
+    BaseCombatTask. The rolling-attack mechanic and its timing are transcribed
+    from an external guide and are NOT yet recording-verified; see
+    docs/research/baicang.md for the source and the parameters that still need
+    live measurement (dodge hold duration, roll rhythm, stamina depletion, and
+    whether holding A truly spins in place).
     """
 
     MAX_FIELD_TIME = 0
@@ -39,8 +38,9 @@ class Baicang(BaseChar):
     SKILL_READY_STREAK_THRESHOLD = 2
     SKILL_SHORT_TIMEOUT = 2.0
     DEFAULT_DIRECTION_KEY = None
-    BURST_DIRECTION_KEY = None  # e.g. "a" to spin; disabled until technique is taught
-    BURST_HOLD_SHIFT = False  # hold Shift during burst; disabled until technique is taught
+    BURST_DIRECTION_KEY = "a"  # hold to spin in place during burst [UNVERIFIED]
+    ROLL_DODGE_HOLD = 0.25  # dodge hold per roll; needs live measurement [UNVERIFIED]
+    ROLL_INTERVAL = 0.12  # pause between rolls [UNVERIFIED]
     ARC_CHECK_INTERVAL = 2.0  # seconds between R attempts during burst
     POST_SKILL_DODGE_DURATION = 1.0
     ABYSS_OPENER_TIMEOUT = 24.0
@@ -106,19 +106,18 @@ class Baicang(BaseChar):
         return self.plan(skill, ultimate, fallback_dodge, entry=entry)
 
     def _perform_burst(self, context: CombatContext = None):
-        """Q 成功后的爆发输出循环 (参考 Nanally.perform_in_ult)。
+        """Q 成功后的爆发输出循环: 连续翻滚攻击 (翻滚攻击, 见 docs/research/baicang.md)。
 
-        - BURST_DIRECTION_KEY (A) + Shift 全程按住: A 使白藏原地转身,
-          Shift 冲刺攻击扫成一圈 AOE
+        - BURST_DIRECTION_KEY (A) 全程按住使白藏原地转身扫圈 [UNVERIFIED]
+        - 每次翻滚: 长按闪避 ROLL_DODGE_HOLD 后松开, 停顿 ROLL_INTERVAL [UNVERIFIED]
         - 循环受 ``ULT_FIELD_DURATION`` 限时
-        - 每个分片后检查: deadline、is_current_char、is_dead、check_combat
-        - E 冷却好后自动释放 (SECOND_SKILL_MODE=execute)
+        - 每次翻滚后检查: deadline、is_current_char、is_dead、check_combat
+        - R 每 ARC_CHECK_INTERVAL 释放; E 冷却好后按 streak 释放
         """
         self.logger.info(f"{_LOG_PREFIX} burst start")
         start = self._now()
         deadline = start + self.ULT_FIELD_DURATION
         direction_key = self.BURST_DIRECTION_KEY or self.DEFAULT_DIRECTION_KEY
-        hold_shift = self.BURST_HOLD_SHIFT
 
         track_second_skill = self.SECOND_SKILL_MODE != "disabled"
         ready_streak = 0
@@ -128,9 +127,6 @@ class Baicang(BaseChar):
         try:
             if direction_key is not None:
                 self.task.send_key_down(direction_key)
-            if hold_shift:
-                self.task.send_key_down("lshift")
-            if direction_key is not None or hold_shift:
                 self.sleep(0.1)
 
             while self._now() < deadline:
@@ -141,23 +137,16 @@ class Baicang(BaseChar):
                     self.logger.info(f"{_LOG_PREFIX} burst end (dead)")
                     return
 
-                remaining = deadline - self._now()
-                slice_dur = min(self.ATTACK_SLICE_DURATION, remaining)
-                if slice_dur > 0:
-                    self._normal_attack_slice(slice_dur)
+                self._single_roll()
+                self.check_combat()
 
                 if self._now() - last_arc >= self.ARC_CHECK_INTERVAL:
                     last_arc = self._now()
                     self.send_arc_key(action_name=("baicang_burst_arc", self.index))
 
-                self.sleep(0.01)
-                self.check_combat()
-
                 if not track_second_skill:
-                    self.sleep(0.1)
                     continue
                 if self._now() - last_check < self.SKILL_CHECK_INTERVAL:
-                    self.sleep(0.1)
                     continue
 
                 last_check = self._now()
@@ -172,11 +161,9 @@ class Baicang(BaseChar):
                     if ready_streak > 0:
                         self.logger.debug(f"{_LOG_PREFIX} skill streak reset (was {ready_streak})")
                     ready_streak = 0
-                    self.sleep(0.1)
                     continue
 
                 if ready_streak < self.SKILL_READY_STREAK_THRESHOLD:
-                    self.sleep(0.1)
                     continue
 
                 if self.SECOND_SKILL_MODE == "execute":
@@ -185,14 +172,20 @@ class Baicang(BaseChar):
                 else:
                     self.logger.info(f"{_LOG_PREFIX} skill armed (observe mode)")
                     ready_streak = 0
-                self.sleep(0.1)
         finally:
             if direction_key is not None:
                 self.task.send_key_up(direction_key)
-            if hold_shift:
-                self.task.send_key_up("lshift")
 
         self.logger.info(f"{_LOG_PREFIX} burst end")
+
+    def _single_roll(self):
+        """一次翻滚攻击: 长按闪避后松开, 再短暂停顿。闪避键在 finally 中保证释放。"""
+        self.task.send_key_down("lshift")
+        try:
+            self.sleep(self.ROLL_DODGE_HOLD)
+        finally:
+            self.task.send_key_up("lshift")
+        self.sleep(self.ROLL_INTERVAL)
 
     def _try_second_skill(self, context: CombatContext = None):
         """参考 Nanally._try_skill_during_ultimate: 检查 reservation 后发送第二 E。"""

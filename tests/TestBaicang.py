@@ -258,56 +258,48 @@ class TestBaicangBurst(unittest.TestCase):
         self.char._perform_burst(None)
 
     def test_burst_returns_on_char_switch(self):
-        original_burst = self.char._right_click_burst
-
-        def burst_with_switch(duration):
-            original_burst(duration)
+        def roll_with_switch():
             self.char.is_current_char = False
 
-        self.char._right_click_burst = burst_with_switch
-        self.char.ULT_FIELD_DURATION = 0.05
+        self.char._single_roll = roll_with_switch
+        self.char.ULT_FIELD_DURATION = 5.0
         self.char._perform_burst(None)
+        self.char.task.send_key_up.assert_any_call("a")
 
     def test_burst_returns_on_death(self):
-        original_burst = self.char._right_click_burst
-
-        def burst_with_death(duration):
-            original_burst(duration)
+        def roll_with_death():
             self.char.is_dead = True
 
-        self.char._right_click_burst = burst_with_death
-        self.char.ULT_FIELD_DURATION = 0.05
+        self.char._single_roll = roll_with_death
+        self.char.ULT_FIELD_DURATION = 5.0
         self.char._perform_burst(None)
+        self.char.task.send_key_up.assert_any_call("a")
 
     def test_not_in_combat_stops_burst(self):
         self.char._combat_active = False
         with self.assertRaises(NotInCombatException):
             self.char._perform_burst(None)
 
-    def test_no_direction_key_when_default_is_none(self):
-        """方向键和 Shift 都关闭时不发送 send_key_down/up。"""
+    def test_burst_holds_direction_and_rolls(self):
+        """翻滚攻击: 方向键(A)全程按住, 闪避键有节奏地按下/松开, 结束后方向键释放。"""
+        self.char._skill_available = False
+        self.char.ULT_FIELD_DURATION = 0.5
+        self.char._perform_burst(None)
+        self.char.task.send_key_down.assert_any_call("a")
+        self.char.task.send_key_up.assert_any_call("a")
+        self.char.task.send_key_down.assert_any_call("lshift")
+        self.char.task.send_key_up.assert_any_call("lshift")
+
+    def test_burst_rolls_without_direction_key(self):
+        """无方向键时仍翻滚(按闪避), 但不按住任何方向键。"""
         self.char._skill_available = False
         self.char.BURST_DIRECTION_KEY = None
         self.char.DEFAULT_DIRECTION_KEY = None
-        self.char.BURST_HOLD_SHIFT = False
-        self.char.ULT_FIELD_DURATION = 0.05
+        self.char.ULT_FIELD_DURATION = 0.5
         self.char._perform_burst(None)
-        self.char.task.send_key_down.assert_not_called()
-        self.char.task.send_key_up.assert_not_called()
-
-    def test_spin_aoe_holds_direction_and_shift(self):
-        """转圈 AOE(显式启用时): 方向键(A) + Shift 全程按住, 结束后都释放。"""
-        self.char._skill_available = False
-        self.char.BURST_DIRECTION_KEY = "a"
-        self.char.BURST_HOLD_SHIFT = True
-        self.char.ULT_FIELD_DURATION = 0.05
-        self.char._perform_burst(None)
-        self.char.task.send_key_down.assert_any_call("a")
         self.char.task.send_key_down.assert_any_call("lshift")
-        self.char.task.send_key_up.assert_any_call("a")
-        self.char.task.send_key_up.assert_any_call("lshift")
-        self.assertEqual(self.char.task.send_key_down.call_count, 2)
-        self.assertEqual(self.char.task.send_key_up.call_count, 2)
+        pressed = [c.args[0] for c in self.char.task.send_key_down.call_args_list]
+        self.assertNotIn("a", pressed)
 
     def test_burst_does_not_call_click_skill_directly(self):
         self.char._skill_available = False
