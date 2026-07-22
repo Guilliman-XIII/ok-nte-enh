@@ -58,7 +58,7 @@ numpy==2.3.5
     #   soundfile
     #   soxr
     #   tifffile
-ok-script==1.0.163
+ok-script==1.0.169
     # via ok-nte (pyproject.toml)
 onnxocr-ppocrv5==0.0.18
     # via ok-nte (pyproject.toml)
@@ -76,7 +76,7 @@ packaging==26.0
     #   mido
     #   pooch
     #   scikit-image
-pillow==12.2.0
+pillow==12.3.0
     # via
     #   imageio
     #   onnxocr-ppocrv5
@@ -90,7 +90,7 @@ psutil==7.2.2
     #   ok-nte (pyproject.toml)
     #   ok-script
     #   pycaw
-pyappify==1.0.5
+pyappify==1.0.6
     # via ok-script
 pycaw==20240210
     # via ok-script
