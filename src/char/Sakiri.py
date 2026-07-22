@@ -31,10 +31,6 @@ class Sakiri(BaseChar):
         """True when enough time has passed to allow a re-gather outside the opener route."""
         return self._cooldowns.is_ready("gather")
 
-    def gather_ready(self) -> bool:
-        """Tactical-layer probe: skill up and reuse floor met (used by scatter-gather)."""
-        return self.skill_available() and self._gather_reuse_ready()
-
     def combat_plan(self, context):
         from src.combat.team_strategies import is_baicang_abyss_team
 

@@ -11,7 +11,6 @@ from src.char.Baicang import Baicang
 from src.char.BaseChar import BaseChar, Element
 from src.char.CharFactory import char_dict
 from src.combat.BaseCombatTask import NotInCombatException
-from src.combat.enemy_field import CONF_VISION_STEER, EnemyField
 from src.combat.planner import ActionSlot, FieldPreference, Role
 
 
@@ -259,48 +258,79 @@ class TestBaicangBurst(unittest.TestCase):
         self.char._perform_burst(None)
 
     def test_burst_returns_on_char_switch(self):
-        def roll_with_switch():
+        calls = {"n": 0}
+
+        def combo_with_switch():
+            calls["n"] += 1
             self.char.is_current_char = False
 
-        self.char._single_roll = roll_with_switch
+        self.char._heavy_combo = combo_with_switch
         self.char.ULT_FIELD_DURATION = 5.0
         self.char._perform_burst(None)
-        self.char.task.send_key_up.assert_any_call("a")
+        self.assertEqual(calls["n"], 1)  # loop exited right after the switch
 
     def test_burst_returns_on_death(self):
-        def roll_with_death():
+        calls = {"n": 0}
+
+        def combo_with_death():
+            calls["n"] += 1
             self.char.is_dead = True
 
-        self.char._single_roll = roll_with_death
+        self.char._heavy_combo = combo_with_death
         self.char.ULT_FIELD_DURATION = 5.0
         self.char._perform_burst(None)
-        self.char.task.send_key_up.assert_any_call("a")
+        self.assertEqual(calls["n"], 1)  # loop exited right after death
 
     def test_not_in_combat_stops_burst(self):
         self.char._combat_active = False
         with self.assertRaises(NotInCombatException):
             self.char._perform_burst(None)
 
-    def test_burst_holds_direction_and_rolls(self):
-        """翻滚攻击: 方向键(A)全程按住, 闪避键有节奏地按下/松开, 结束后方向键释放。"""
+    def test_burst_runs_heavy_combo(self):
+        """第二套手法: 点按普攻(click) + 长按重击(mouse_down/up) + 往前走(w)重置, 结束后释放 w。"""
         self.char._skill_available = False
         self.char.ULT_FIELD_DURATION = 0.5
         self.char._perform_burst(None)
-        self.char.task.send_key_down.assert_any_call("a")
-        self.char.task.send_key_up.assert_any_call("a")
-        self.char.task.send_key_down.assert_any_call("lshift")
-        self.char.task.send_key_up.assert_any_call("lshift")
+        self.char.task.click.assert_called()  # normal-attack taps
+        self.char.task.mouse_down.assert_called()  # heavy long-press
+        self.char.task.mouse_up.assert_called()
+        self.char.task.send_key_down.assert_any_call("w")  # walk-forward reset
+        self.char.task.send_key_up.assert_any_call("w")
 
-    def test_burst_rolls_without_direction_key(self):
-        """无方向键时仍翻滚(按闪避), 但不按住任何方向键。"""
+    def test_burst_combo_without_direction_key(self):
+        """无方向键时仍打重击连招, 但跳过走位重置, 不按任何方向键。"""
         self.char._skill_available = False
         self.char.BURST_DIRECTION_KEY = None
         self.char.DEFAULT_DIRECTION_KEY = None
         self.char.ULT_FIELD_DURATION = 0.5
         self.char._perform_burst(None)
-        self.char.task.send_key_down.assert_any_call("lshift")
+        self.char.task.mouse_down.assert_called()  # heavy still runs
         pressed = [c.args[0] for c in self.char.task.send_key_down.call_args_list]
-        self.assertNotIn("a", pressed)
+        self.assertNotIn("w", pressed)
+
+    def test_heavy_combo_sequence_tap_tap_heavy_walk(self):
+        """第二套手法顺序: 点按普攻两下 → 长按重击 → 往前走重置。"""
+        order = []
+        self.char.normal_attack = lambda: order.append("tap")
+        self.char.heavy_attack = lambda duration=0.6: order.append("heavy")
+        self.char._walk_forward_reset = lambda: order.append("walk")
+        self.char._heavy_combo()
+        self.assertEqual(order, ["tap", "tap", "heavy", "walk"])
+
+    def test_heavy_combo_stops_before_heavy_on_switch(self):
+        """点按过程中切人, 不再执行长按重击与走位。"""
+        order = []
+
+        def tap_and_switch():
+            order.append("tap")
+            self.char.is_current_char = False
+
+        self.char.normal_attack = tap_and_switch
+        self.char.heavy_attack = lambda duration=0.6: order.append("heavy")
+        self.char._walk_forward_reset = lambda: order.append("walk")
+        self.char._heavy_combo()
+        self.assertNotIn("heavy", order)
+        self.assertNotIn("walk", order)
 
     def test_burst_does_not_call_click_skill_directly(self):
         self.char._skill_available = False
@@ -451,88 +481,6 @@ class TestBaicangNow(unittest.TestCase):
         char = TestableBaicang()
         char._fake_time = 99.0
         self.assertEqual(char._now(), 99.0)
-
-
-class _Box:
-    def __init__(self, x, y, width, height):
-        self.x = x
-        self.y = y
-        self.width = width
-        self.height = height
-
-
-def _field(cx, cy, count=3, available=True):
-    return EnemyField(count, cx, cy, 0.1, False, available)
-
-
-class TestBaicangSteerDecision(unittest.TestCase):
-    def setUp(self):
-        self.char = TestableBaicang()
-
-    def test_unavailable_returns_base(self):
-        self.assertEqual(self.char._steer_direction_key(EnemyField.unavailable(), "x"), "x")
-
-    def test_none_field_returns_base(self):
-        self.assertEqual(self.char._steer_direction_key(None, "x"), "x")
-
-    def test_no_enemies_returns_base(self):
-        self.assertEqual(self.char._steer_direction_key(_field(0.9, 0.5, count=0), "x"), "x")
-
-    def test_cluster_right_steers_right(self):
-        self.assertEqual(self.char._steer_direction_key(_field(0.8, 0.5), "x"), "d")
-
-    def test_cluster_left_steers_left(self):
-        self.assertEqual(self.char._steer_direction_key(_field(0.2, 0.5), "x"), "a")
-
-    def test_cluster_above_steers_forward(self):
-        self.assertEqual(self.char._steer_direction_key(_field(0.5, 0.2), "x"), "w")
-
-    def test_cluster_below_steers_back(self):
-        self.assertEqual(self.char._steer_direction_key(_field(0.5, 0.8), "x"), "s")
-
-    def test_center_deadzone_keeps_base(self):
-        self.assertEqual(self.char._steer_direction_key(_field(0.52, 0.5), "x"), "x")
-
-    def test_diagonal_uses_dominant_axis(self):
-        # dx=+0.3 (right) dominates dy=-0.1 (up) -> steer right
-        self.assertEqual(self.char._steer_direction_key(_field(0.8, 0.4), "x"), "d")
-
-
-class TestBaicangVisionSteerBurst(unittest.TestCase):
-    def setUp(self):
-        self.char = TestableBaicang()
-        self.char._mock_burst = False
-        self.char._ultimate_available = True
-        self.char._skill_available = False
-        self.char.is_current_char = True
-        self.char.is_dead = False
-
-    def test_burst_steers_toward_cluster_when_enabled(self):
-        self.char.ULT_FIELD_DURATION = 0.5
-        self.char.task.config = {CONF_VISION_STEER: True}
-        self.char.task.openvino_available = True
-        self.char.task.main_viewport = _Box(0, 0, 1000, 1000)
-        # cluster on the right -> steer right ("d")
-        self.char.task.openvino_detect.return_value = [_Box(800, 480, 40, 40)]
-        self.char._perform_burst(None)
-        self.char.task.send_key_down.assert_any_call("d")
-        self.char.task.send_key_up.assert_any_call("d")
-
-    def test_burst_falls_back_to_spin_when_detection_unavailable(self):
-        self.char.ULT_FIELD_DURATION = 0.3
-        self.char.task.config = {CONF_VISION_STEER: True}
-        self.char.task.openvino_available = False
-        self.char._perform_burst(None)
-        self.char.task.send_key_down.assert_any_call("a")
-        self.char.task.send_key_up.assert_any_call("a")
-
-    def test_burst_default_off_does_not_read_detector(self):
-        self.char.ULT_FIELD_DURATION = 0.3
-        self.char.task.config = {}
-        self.char.task.openvino_available = True
-        self.char._perform_burst(None)
-        self.char.task.openvino_detect.assert_not_called()
-        self.char.task.send_key_down.assert_any_call("a")
 
 
 if __name__ == "__main__":

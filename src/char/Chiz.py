@@ -10,11 +10,17 @@ class Chiz(BaseChar):
     ULT_FIELD_DURATION = 8.0
     SKILL_SHORT_TIMEOUT = 2.0
     SKILL_CHAIN_MAX_USES = 3
+    # During the 8s ultimate E's CD is fast and charges regenerate, so allow more casts than
+    # the normal chain's 3; skill_available() (charges/CD) and the min interval still gate each
+    # cast, this cap just stops the old limit from wasting regenerated charges.
+    ULT_SKILL_MAX_USES = 8
     SKILL_CHAIN_NORMAL_ATTACKS = 2
     SKILL_CHAIN_ATTACK_INTERVAL = 0.35
     SKILL_CHAIN_MIN_E_INTERVAL = 0.6
-    # Minimum yellow gauge percentage to consider E; below this the reading is noise.
-    # The yellow > red gate is a conservative proxy, not a proven peak-timing detector.
+    # Minimum yellow gauge percentage to consider E; below this the reading is noise. With the
+    # calibrated yellow range the gate reads ~0.06-0.12 whenever the golden gauge is up during
+    # the ultimate, so E is cast whenever a charge is ready (skill_available) rather than only at
+    # rare peak-brightness moments.
     SKILL_GAUGE_MIN_YELLOW = 0.02
 
     def __init__(self, *args, **kwargs):
@@ -108,7 +114,7 @@ class Chiz(BaseChar):
             red_pct = self.task.calculate_color_percentage(red_pct_color, box)
             yellow_pct = self.task.calculate_color_percentage(yellow_pct_color, box)
             if (
-                skill_uses < self.SKILL_CHAIN_MAX_USES
+                skill_uses < self.ULT_SKILL_MAX_USES
                 and self._now() - last_skill_at >= self.SKILL_CHAIN_MIN_E_INTERVAL
                 and yellow_pct >= self.SKILL_GAUGE_MIN_YELLOW
                 and yellow_pct > red_pct
@@ -127,7 +133,7 @@ class Chiz(BaseChar):
                     )
             self.click_with_interval()
             self.sleep(0.1)
-        self.logger.info(f"[Chiz] ultimate skill uses {skill_uses}/{self.SKILL_CHAIN_MAX_USES}")
+        self.logger.info(f"[Chiz] ultimate skill uses {skill_uses}/{self.ULT_SKILL_MAX_USES}")
         return self.is_current_char and not self.is_dead
 
     def _send_single_skill(self, phase: str, use_number: int) -> bool:
@@ -143,14 +149,23 @@ class Chiz(BaseChar):
         return time.monotonic()
 
 
+# Coral-red gauge text shown when the 金谷 percentage is negative (do NOT cast E). Calibrated
+# from recording frames: the negative text measures about R211 G110 B130 (span R181-247,
+# G71-132, B98-169). The old narrow range (R250-255, G115-125, B115-120) detected none of it,
+# so red_pct was always 0 and the yellow>red gate only worked by accident (yellow was also 0).
+# Separated from the yellow range by green (yellow G>=185, red G<=145) so a pixel matches only one.
 red_pct_color = {
-    "r": (250, 255),
-    "g": (115, 125),
-    "b": (115, 120),
+    "r": (175, 255),
+    "g": (60, 145),
+    "b": (90, 175),
 }
 
+# Golden gauge (金谷) above Chiz's HP bar during her ultimate. Range calibrated from
+# recording frames: the gauge text measures about R234 G236 B149 (span R191-251, G188-252,
+# B99-169). The old narrow range (R250-255, B120-125) missed it and read 0, keeping the gate
+# shut. This range still excludes the white waveform (B~255) and dark green badge (low R).
 yellow_pct_color = {
-    "r": (250, 255),
-    "g": (230, 240),
-    "b": (120, 125),
+    "r": (185, 255),
+    "g": (185, 255),
+    "b": (95, 175),
 }

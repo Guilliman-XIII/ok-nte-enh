@@ -421,12 +421,12 @@ class TestChizBurstSafety(unittest.TestCase):
         self.assertEqual(attacks, ["A"] * 6)
         self.assertEqual(sleeps, [0.35] * 6)
 
-    def test_burst_uses_skill_at_most_three_times_and_stops_when_switched_out(self):
+    def test_burst_stops_casting_when_switched_out(self):
         task = FakeTask()
         task.box_of_screen = lambda *args, **kwargs: object()
         task.wait_ocr = lambda *args, **kwargs: None
         task.calculate_color_percentage = lambda color, box: (
-            0.8 if color is not None and color["g"][0] > 200 else 0.1
+            0.8 if color is not None and color["g"][0] > 150 else 0.1
         )
         trace = []
         char = Chiz(task, 0, char_id="chiz")
@@ -453,6 +453,33 @@ class TestChizBurstSafety(unittest.TestCase):
         self.assertEqual(trace, ["E", "E", "E"])
         self.assertGreaterEqual(attacks[0], 3)
         self.assertFalse(completed)
+
+    def test_burst_casts_up_to_ult_skill_cap(self):
+        """大招内 E 上限为 ULT_SKILL_MAX_USES(8): 闸门开、充能常就绪、不切人时放满 8 次。"""
+        task = FakeTask()
+        task.box_of_screen = lambda *args, **kwargs: object()
+        task.wait_ocr = lambda *args, **kwargs: None
+        task.calculate_color_percentage = lambda color, box: (
+            0.8 if color is not None and color["g"][0] > 150 else 0.1
+        )
+        trace = []
+        char = Chiz(task, 0, char_id="chiz")
+        task.chars = [char]
+        char.is_current_char = True
+        char.is_dead = False
+        now = [0.0]
+        char._now = lambda: now[0]
+        char.skill_available = lambda *args, **kwargs: True
+        char.send_skill_key = lambda *args, **kwargs: trace.append("E") or True
+        char.check_combat = lambda: None
+        char.sleep = lambda duration, *args, **kwargs: now.__setitem__(0, now[0] + duration)
+        char.click_with_interval = lambda *args, **kwargs: None
+
+        completed = char.perform_in_ult()
+
+        self.assertEqual(char.ULT_SKILL_MAX_USES, 8)
+        self.assertEqual(trace, ["E"] * 8)
+        self.assertTrue(completed)
 
 
 class TestAbyssInputPolicies(unittest.TestCase):

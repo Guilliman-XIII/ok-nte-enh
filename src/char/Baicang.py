@@ -1,7 +1,6 @@
 import time
 
 from src.char.BaseChar import BaseChar
-from src.combat.enemy_field import CONF_VISION_STEER, feature_enabled, read_enemy_field
 from src.combat.planner import (
     ActionSlot,
     ActionTag,
@@ -15,16 +14,16 @@ _LOG_PREFIX = "[Baicang]"
 
 
 class Baicang(BaseChar):
-    """Baicang main DPS. Q burst uses rolling attacks (翻滚攻击), not normal attacks.
+    """Baicang main DPS. Q burst uses the Method-2 heavy combo (点按两次再长按).
 
-    Normal attacks scatter enemies (2nd hit knocks back, 5th launches), so the
-    burst instead chains rolling attacks: hold a direction key and rhythmically
-    long-press then release dodge. Sound-triggered dodge/counter stays owned by
-    BaseCombatTask. The rolling-attack mechanic and its timing are transcribed
-    from an external guide and are NOT yet recording-verified; see
-    docs/research/baicang.md for the source and the parameters that still need
-    live measurement (dodge hold duration, roll rhythm, stamina depletion, and
-    whether holding A truly spins in place).
+    The burst chains heavy combos: tap normal attack twice, long-press for the
+    charged back-jump talisman throw, then walk forward briefly to reset the combo
+    before the weak 4th/5th normal hits. This uses the normal-attack key only, so it
+    needs no dodge key and no mouse steering (target-lock keeps Baicang facing the
+    enemy). Sound-triggered dodge/counter stays owned by BaseCombatTask. The combo
+    mechanic and its timings are transcribed from an external guide (BV1Wy9bBWESK)
+    and are NOT yet recording-verified; see docs/research/baicang.md for the source
+    and the parameters that still need live measurement.
     """
 
     MAX_FIELD_TIME = 0
@@ -39,19 +38,21 @@ class Baicang(BaseChar):
     SKILL_READY_STREAK_THRESHOLD = 2
     SKILL_SHORT_TIMEOUT = 2.0
     DEFAULT_DIRECTION_KEY = None
-    BURST_DIRECTION_KEY = "a"  # hold to spin in place during burst [UNVERIFIED]
-    ROLL_DODGE_HOLD = 0.25  # dodge hold per roll; needs live measurement [UNVERIFIED]
-    ROLL_INTERVAL = 0.12  # pause between rolls [UNVERIFIED]
+    # Method-2 heavy combo (guide BV1Wy9bBWESK, "点按两次再长按"): tap normal attack twice,
+    # then long-press (heavy) for the charged back-jump talisman throw, then walk forward
+    # briefly to reset the combo before the weak 4th/5th normal hits. Uses the normal-attack
+    # key only, so it needs NO dodge key and NO mouse steering (target-lock keeps Baicang
+    # facing the enemy); BURST_DIRECTION_KEY is just the forward walk for the reset.
+    # The earlier dodge-roll approach was live-confirmed broken (holding shift = sprint, zero
+    # damage, and needs real-time mouse steering). All timings below UNVERIFIED, calibrate live.
+    BURST_DIRECTION_KEY = "w"  # forward walk used for the combo reset
+    HEAVY_TAP_COUNT = 2  # normal-attack taps before the heavy long-press
+    HEAVY_TAP_INTERVAL = 0.18  # gap between the two taps
+    HEAVY_HOLD_DURATION = 0.6  # long-press duration -> charged back-jump talisman throw
+    WALK_RESET_DURATION = 0.4  # forward walk to reset the normal-attack combo
     ARC_CHECK_INTERVAL = 2.0  # seconds between R attempts during burst
     POST_SKILL_DODGE_DURATION = 1.0
     ABYSS_OPENER_TIMEOUT = 24.0
-    # Vision-steered rolling (config-gated, default OFF). All UNVERIFIED, tune live.
-    STEER_CHECK_INTERVAL = 0.4  # seconds between re-aiming toward the enemy cluster
-    STEER_DEADZONE = 0.12  # cluster this close to screen centre -> keep spinning
-    STEER_KEY_LEFT = "a"
-    STEER_KEY_RIGHT = "d"
-    STEER_KEY_FORWARD = "w"
-    STEER_KEY_BACK = "s"
 
     @staticmethod
     def is_abyss_team(chars):
@@ -100,12 +101,9 @@ class Baicang(BaseChar):
         )
 
         def entry():
-            from src.combat.team_strategies import maybe_request_scatter_gather
-
             ultimate_result = yield ultimate
             if ultimate_result:
                 self._perform_burst(context)
-                maybe_request_scatter_gather(context, self.task, self.task.chars, self)
                 return
 
             skill_result = yield skill
@@ -113,132 +111,103 @@ class Baicang(BaseChar):
                 self._post_skill_dodge()
             else:
                 yield fallback_dodge
-            maybe_request_scatter_gather(context, self.task, self.task.chars, self)
 
         return self.plan(skill, ultimate, fallback_dodge, entry=entry)
 
     def _perform_burst(self, context: CombatContext = None):
-        """Q 成功后的爆发输出循环: 连续翻滚攻击 (翻滚攻击, 见 docs/research/baicang.md)。
+        """Q 成功后的爆发输出循环: 第二套手法重击连招。
 
-        - 默认: 全程按住 BURST_DIRECTION_KEY (A) 使白藏原地转身扫圈 [UNVERIFIED]
-        - 视觉引导开关打开时: 每隔 STEER_CHECK_INTERVAL 读取敌人场, 朝怪群质心换方向键,
-          让翻滚追着怪群, 减少滚偏 [UNVERIFIED, 需实机调校]
-        - 每次翻滚: 长按闪避 ROLL_DODGE_HOLD 后松开, 停顿 ROLL_INTERVAL [UNVERIFIED]
+        攻略 BV1Wy9bBWESK, 见 docs/research/baicang.md。
+
+        - 每轮: 点按普攻两下 → 长按重击(后跳丢符) → 往前走一段重置连招, 避开低伤的第四五段普攻
+        - 全程只用普攻键, 不依赖闪避键, 也不需要鼠标实时转向 (锁定目标保证白藏朝向敌人)
         - 循环受 ``ULT_FIELD_DURATION`` 限时
-        - 每次翻滚后检查: deadline、is_current_char、is_dead、check_combat
+        - 每轮后检查: deadline、is_current_char、is_dead、check_combat
         - R 每 ARC_CHECK_INTERVAL 释放; E 冷却好后按 streak 释放
         """
         self.logger.info(f"{_LOG_PREFIX} burst start")
         start = self._now()
         deadline = start + self.ULT_FIELD_DURATION
-        base_key = self.BURST_DIRECTION_KEY or self.DEFAULT_DIRECTION_KEY
-        vision_steer = feature_enabled(self.task, CONF_VISION_STEER)
 
         track_second_skill = self.SECOND_SKILL_MODE != "disabled"
         ready_streak = 0
         last_check = start
         last_arc = start
-        last_steer = start - self.STEER_CHECK_INTERVAL  # force an immediate first steer
 
-        held = {"key": None}
-
-        def hold(key):
-            if held["key"] == key:
+        while self._now() < deadline:
+            if not self.is_current_char:
+                self.logger.info(f"{_LOG_PREFIX} burst end (not current char)")
                 return
-            if held["key"] is not None:
-                self.task.send_key_up(held["key"])
-            if key is not None:
-                self.task.send_key_down(key)
-            held["key"] = key
+            if self.is_dead:
+                self.logger.info(f"{_LOG_PREFIX} burst end (dead)")
+                return
 
-        try:
-            if not vision_steer:
-                hold(base_key)
-                if base_key is not None:
-                    self.sleep(0.1)
+            self._heavy_combo()
+            self.check_combat()
 
-            while self._now() < deadline:
-                if not self.is_current_char:
-                    self.logger.info(f"{_LOG_PREFIX} burst end (not current char)")
-                    return
-                if self.is_dead:
-                    self.logger.info(f"{_LOG_PREFIX} burst end (dead)")
-                    return
+            if self._now() - last_arc >= self.ARC_CHECK_INTERVAL:
+                last_arc = self._now()
+                self.send_arc_key(action_name=("baicang_burst_arc", self.index))
 
-                if vision_steer and self._now() - last_steer >= self.STEER_CHECK_INTERVAL:
-                    last_steer = self._now()
-                    field = read_enemy_field(self.task)
-                    hold(self._steer_direction_key(field, base_key))
+            if not track_second_skill:
+                continue
+            if self._now() - last_check < self.SKILL_CHECK_INTERVAL:
+                continue
 
-                self._single_roll()
-                self.check_combat()
+            last_check = self._now()
+            if self.skill_available():
+                ready_streak += 1
+                if ready_streak == 1:
+                    self.logger.info(
+                        f"{_LOG_PREFIX} skill ready streak="
+                        f"{ready_streak}/{self.SKILL_READY_STREAK_THRESHOLD}"
+                    )
+            else:
+                if ready_streak > 0:
+                    self.logger.debug(f"{_LOG_PREFIX} skill streak reset (was {ready_streak})")
+                ready_streak = 0
+                continue
 
-                if self._now() - last_arc >= self.ARC_CHECK_INTERVAL:
-                    last_arc = self._now()
-                    self.send_arc_key(action_name=("baicang_burst_arc", self.index))
+            if ready_streak < self.SKILL_READY_STREAK_THRESHOLD:
+                continue
 
-                if not track_second_skill:
-                    continue
-                if self._now() - last_check < self.SKILL_CHECK_INTERVAL:
-                    continue
-
-                last_check = self._now()
-                if self.skill_available():
-                    ready_streak += 1
-                    if ready_streak == 1:
-                        self.logger.info(
-                            f"{_LOG_PREFIX} skill ready streak="
-                            f"{ready_streak}/{self.SKILL_READY_STREAK_THRESHOLD}"
-                        )
-                else:
-                    if ready_streak > 0:
-                        self.logger.debug(f"{_LOG_PREFIX} skill streak reset (was {ready_streak})")
-                    ready_streak = 0
-                    continue
-
-                if ready_streak < self.SKILL_READY_STREAK_THRESHOLD:
-                    continue
-
-                if self.SECOND_SKILL_MODE == "execute":
-                    if self._try_second_skill(context):
-                        ready_streak = 0  # allow E to fire again after next cooldown
-                else:
-                    self.logger.info(f"{_LOG_PREFIX} skill armed (observe mode)")
-                    ready_streak = 0
-        finally:
-            if held["key"] is not None:
-                self.task.send_key_up(held["key"])
+            if self.SECOND_SKILL_MODE == "execute":
+                if self._try_second_skill(context):
+                    ready_streak = 0  # allow E to fire again after next cooldown
+            else:
+                self.logger.info(f"{_LOG_PREFIX} skill armed (observe mode)")
+                ready_streak = 0
 
         self.logger.info(f"{_LOG_PREFIX} burst end")
 
-    def _steer_direction_key(self, field, base_key):
-        """Pick the movement key that rolls toward the enemy cluster centre.
+    def _heavy_combo(self):
+        """第二套手法一轮: 点按普攻 HEAVY_TAP_COUNT 下 → 长按重击(后跳丢符) → 往前走一段重置。
 
-        ``field.centroid_x/y`` are normalised 0..1 within the viewport (0.5 is
-        centre). When detection is unavailable or the cluster sits near centre we
-        fall back to ``base_key`` (spin in place). Otherwise we hold the key toward
-        the dominant axis of the cluster offset. Camera-relative mapping is assumed
-        (screen left == character left) and is NOT recording-verified.
+        长按重击用 ``heavy_attack`` (mouse_down/up), 点按用 ``normal_attack``。每步前后检查
+        is_current_char/is_dead, 切人或死亡时立即停止。
         """
-        if field is None or not field.available or field.count <= 0:
-            return base_key
-        dx = field.centroid_x - 0.5
-        dy = field.centroid_y - 0.5
-        if abs(dx) < self.STEER_DEADZONE and abs(dy) < self.STEER_DEADZONE:
-            return base_key
-        if abs(dx) >= abs(dy):
-            return self.STEER_KEY_RIGHT if dx > 0 else self.STEER_KEY_LEFT
-        # screen y grows downward, so centroid above centre (dy < 0) is forward
-        return self.STEER_KEY_FORWARD if dy < 0 else self.STEER_KEY_BACK
+        for _ in range(self.HEAVY_TAP_COUNT):
+            if not self.is_current_char or self.is_dead:
+                return
+            self.normal_attack()
+            self.sleep(self.HEAVY_TAP_INTERVAL)
+        if not self.is_current_char or self.is_dead:
+            return
+        self.heavy_attack(duration=self.HEAVY_HOLD_DURATION)
+        if not self.is_current_char or self.is_dead:
+            return
+        self._walk_forward_reset()
 
-    def _single_roll(self):
-        """一次翻滚攻击: 长按闪避后松开, 再短暂停顿。闪避键在 finally 中保证释放。"""
-        self.task.send_key_down("lshift")
+    def _walk_forward_reset(self):
+        """往前走一小段, 重置普攻连招段数, 避免打出低伤害的第四五段。方向键在 finally 中释放。"""
+        key = self.BURST_DIRECTION_KEY or self.DEFAULT_DIRECTION_KEY
+        if key is None:
+            return
+        self.task.send_key_down(key)
         try:
-            self.sleep(self.ROLL_DODGE_HOLD)
+            self.sleep(self.WALK_RESET_DURATION)
         finally:
-            self.task.send_key_up("lshift")
-        self.sleep(self.ROLL_INTERVAL)
+            self.task.send_key_up(key)
 
     def _try_second_skill(self, context: CombatContext = None):
         """参考 Nanally._try_skill_during_ultimate: 检查 reservation 后发送第二 E。"""
