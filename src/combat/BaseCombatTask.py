@@ -880,7 +880,7 @@ class BaseCombatTask(CharElementUIMixin, CombatCheck):
         sound_context = SoundCombatContext()
         if self.sound_config:
             enable = self.sound_config.get("Enable Sound Trigger", True)
-            dodge_all_attacks = self.sound_config.get("Dodge All Attacks", True)
+            dodge_all_attacks = self.sound_config.get("Dodge All Attacks", False)
             dodge_thresh = self.sound_config.get("Dodge Threshold", 0.13)
             counter_thresh = self.sound_config.get("Counter Attack Threshold", 0.12)
             dodge_thresh = np.clip(dodge_thresh, 0.0, 1.0)
