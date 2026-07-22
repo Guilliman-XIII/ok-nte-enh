@@ -48,7 +48,10 @@ class Baicang(BaseChar):
     BURST_DIRECTION_KEY = "w"  # forward walk used for the combo reset
     HEAVY_TAP_COUNT = 2  # normal-attack taps before the heavy long-press
     HEAVY_TAP_INTERVAL = 0.18  # gap between the two taps
-    HEAVY_HOLD_DURATION = 0.6  # long-press duration -> charged back-jump talisman throw
+    # Long-press duration -> charged back-jump talisman throw. 0.6 charged only intermittently in
+    # live play (2026-07-22); 0.9 adds margin above the charge threshold so it fires every combo.
+    # Still UNVERIFIED -- if it over-holds or still mis-fires, tune live (try 0.8 / 1.0 / 1.2).
+    HEAVY_HOLD_DURATION = 0.9
     WALK_RESET_DURATION = 0.4  # forward walk to reset the normal-attack combo
     ARC_CHECK_INTERVAL = 2.0  # seconds between R attempts during burst
     POST_SKILL_DODGE_DURATION = 1.0
