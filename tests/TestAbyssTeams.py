@@ -128,6 +128,38 @@ class TestBaicangAbyssTeam(unittest.TestCase):
             Sakiri.SKILL_SETTLE_DURATION,
         )
 
+    def test_sakiri_ultimate_marks_reuse_cooldown(self):
+        self.sakiri._test_ultimate_ready = True
+        base = self.sakiri._now()
+        self.sakiri._now = lambda: base
+
+        result = self.sakiri._execute_ultimate(None)
+
+        self.assertTrue(result)
+        self.assertIn(("Sakiri", "Q"), self.trace)
+        # Right after casting, the reuse interval has not elapsed yet.
+        self.assertFalse(self.sakiri._ult_reuse_ready())
+
+    def test_sakiri_can_reult_in_loop_after_interval(self):
+        # No active route: isolate the loop re-cast path (not the opener step).
+        self.planner.state.locked_route = None
+        ctx = self.planner.context_for(self.sakiri)
+        plan = self.sakiri.combat_plan(ctx)
+        ultimate = next(a for a in plan.actions if a.slot == ActionSlot.ULTIMATE)
+
+        self.sakiri._test_ultimate_ready = True
+        base = self.sakiri._now()
+        self.sakiri._cooldowns.mark_used("ultimate", Sakiri.ULT_REUSE_INTERVAL, now=base)
+
+        # Within the reuse interval the loop re-cast is gated off.
+        self.sakiri._now = lambda: base + 1.0
+        self.assertFalse(ultimate.is_priority_ready(ctx))
+
+        # Once the interval has elapsed and the ultimate is off CD, it is attractive again.
+        self.sakiri._now = lambda: base + Sakiri.ULT_REUSE_INTERVAL + 1.0
+        self.assertTrue(ultimate.is_priority_ready(ctx))
+        self.assertTrue(ultimate.is_allowed(ctx))
+
     def test_sakiri_actions_are_hidden_after_opener(self):
         current = self.sakiri
         current = self._perform_and_switch(current)
