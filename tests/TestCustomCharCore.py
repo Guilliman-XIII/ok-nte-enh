@@ -3,13 +3,15 @@ import os
 import shutil
 import unittest
 import uuid
-from pathlib import Path
 from unittest.mock import Mock, patch
 
 from src.char.custom.CustomChar import CustomChar
-from src.char.custom.CustomCharManager import DB_SCHEMA_VERSION, CustomCharManager
+from src.char.custom.CustomCharDb import DB_SCHEMA_VERSION, CustomCharDb
+from src.char.custom.CustomCharDbMigrator import CustomCharDbMigrator, MigrationContext
+from src.char.custom.CustomCharManager import CustomCharManager
 
 PREDEFINED_CHARACTER_ID = "char_zero"
+
 
 class TestCustomCharCore(unittest.TestCase):
     def setUp(self):
@@ -29,16 +31,22 @@ class TestCustomCharCore(unittest.TestCase):
         for patcher in self.patchers:
             patcher.start()
         CustomCharManager._instance = None
+        CustomCharDb.reset_instance()
 
     def tearDown(self):
         for patcher in self.patchers:
             patcher.stop()
         shutil.rmtree(self.temp_dir, ignore_errors=True)
         CustomCharManager._instance = None
+        CustomCharDb.reset_instance()
 
     def _write_db(self, data):
         with open(self.db_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+
+    def _read_persisted_db(self):
+        with open(self.db_path, encoding="utf-8") as file:
+            return json.load(file)
 
     def test_db_schema_migrates_legacy_combo_name(self):
         legacy = {
@@ -55,10 +63,11 @@ class TestCustomCharCore(unittest.TestCase):
         self._write_db(legacy)
 
         manager = CustomCharManager()
-        self.assertEqual(manager.db["schema_version"], DB_SCHEMA_VERSION)
+        persisted = self._read_persisted_db()
+        self.assertEqual(persisted["schema_version"], DB_SCHEMA_VERSION)
         combo_id = manager.find_custom_combo_id_by_name("combo_old")
         self.assertTrue(combo_id.startswith("combo_"))
-        raw = next(iter(manager.db["characters"].values()))
+        raw = next(iter(persisted["characters"].values()))
         self.assertEqual(raw["name"], "char_legacy")
         self.assertEqual(raw["combo_id"], combo_id)
         self.assertNotIn("combo_name", raw)
@@ -106,9 +115,7 @@ class TestCustomCharCore(unittest.TestCase):
     def test_db_schema_remaps_custom_combo_key_conflicting_with_builtin(self):
         legacy = {
             "schema_version": 3,
-            "combos": {
-                "builtin:char_zero": "skill,wait(0.1)"
-            },
+            "combos": {"builtin:char_zero": "skill,wait(0.1)"},
             "characters": {
                 "char_conflict": {
                     "combo_name": "builtin:char_zero",
@@ -122,8 +129,8 @@ class TestCustomCharCore(unittest.TestCase):
         manager = CustomCharManager()
         remapped_key = manager.find_custom_combo_id_by_name("builtin:char_zero")
 
-        self.assertNotIn("builtin:char_zero", manager.db["combos"])
-        self.assertIn(remapped_key, manager.db["combos"])
+        self.assertFalse(manager.is_custom_combo_exist("builtin:char_zero"))
+        self.assertTrue(manager.is_custom_combo_exist(remapped_key))
         self.assertEqual(manager.get_combo(remapped_key), "skill,wait(0.1)")
 
         info = manager.get_character_info_by_id(manager._find_character_id_by_name("char_conflict"))
@@ -152,64 +159,203 @@ class TestCustomCharCore(unittest.TestCase):
         self.assertFalse(is_valid)
         self.assertIn("unknown command", error or "")
 
-    def test_validate_combo_supports_if_command(self):
+    def test_validate_combo_supports_compact_if_else_and_return(self):
+        is_valid, error = CustomChar.validate_combo_syntax("if ultimate: skill")
+        self.assertTrue(is_valid)
+        self.assertIsNone(error)
+
+        is_valid, error = CustomChar.validate_combo_syntax(
+            "if ultimate: skill, wait(0.1)\nelse: l_click(2)"
+        )
+        self.assertTrue(is_valid)
+        self.assertIsNone(error)
+
+    def test_combo_syntax_guide_uses_single_searchable_flow_block(self):
+        guide = CustomChar.get_combo_syntax_guide()
+        header = guide.splitlines()[0].lower()
+
+        self.assertTrue(header.startswith("▶"))
+        self.assertEqual(guide.count("▶"), 1)
+        for keyword in ("if", "else", "return"):
+            self.assertIn(keyword, header)
+
+        is_valid, error = CustomChar.validate_combo_syntax("if ultimate: return")
+        self.assertTrue(is_valid)
+        self.assertIsNone(error)
+
+    def test_validate_combo_rejects_legacy_and_invalid_if_usage(self):
+        is_valid, error = CustomChar.validate_combo_syntax("if wait: skill")
+        self.assertFalse(is_valid)
+        self.assertIn("not enabled as if condition", error or "")
+
         is_valid, error = CustomChar.validate_combo_syntax("if_(ultimate, skill)")
-        self.assertTrue(is_valid)
-        self.assertIsNone(error)
-
-        is_valid, error = CustomChar.validate_combo_syntax("if_(ultimate, l_click(2))")
-        self.assertTrue(is_valid)
-        self.assertIsNone(error)
-
-        is_valid, error = CustomChar.validate_combo_syntax("if_(ultimate, skill, wait(0.1))")
-        self.assertTrue(is_valid)
-        self.assertIsNone(error)
-
-    def test_validate_combo_rejects_invalid_if_usage(self):
-        is_valid, error = CustomChar.validate_combo_syntax("if_(wait, skill)")
         self.assertFalse(is_valid)
-        self.assertIn("not enabled as if_ condition", error or "")
+        self.assertIn("unknown command 'if_'", error or "")
 
-        is_valid, error = CustomChar.validate_combo_syntax("if_(ultimate)")
+        is_valid, error = CustomChar.validate_combo_syntax("return")
         self.assertFalse(is_valid)
-        self.assertIn("at least 2", error or "")
+        self.assertIn("only allowed inside if or else", error or "")
 
-        is_valid, error = CustomChar.validate_combo_syntax("if_(ultimate, skill, wait=0.1)")
-        self.assertFalse(is_valid)
-        self.assertIn("only supports positional", error or "")
-
-    def test_if_runtime_executes_then_only_when_condition_is_true_bool(self):
+    def test_if_runtime_executes_selected_branch_only_when_condition_is_bool(self):
         char = object.__new__(CustomChar)
         char.logger = Mock()
-        state = {"then_count": 0}
+        state = {"then_count": 0, "else_count": 0}
 
         cond_true = ("ultimate", lambda self: True, [], {}, "ultimate")
         then_cmds = [
-            ("skill", lambda self: state.__setitem__("then_count", state["then_count"] + 1), [], {}, "skill"),
-            ("wait", lambda self: state.__setitem__("then_count", state["then_count"] + 1), [], {}, "wait(0.1)"),
+            (
+                "skill",
+                lambda self: state.__setitem__("then_count", state["then_count"] + 1),
+                [],
+                {},
+                "skill",
+            ),
+            (
+                "wait",
+                lambda self: state.__setitem__("then_count", state["then_count"] + 1),
+                [],
+                {},
+                "wait(0.1)",
+            ),
         ]
-        result = char._execute_if_command(cond_true, then_cmds)
+        else_cmds = [
+            (
+                "l_click",
+                lambda self: state.__setitem__("else_count", state["else_count"] + 1),
+                [],
+                {},
+                "l_click",
+            )
+        ]
+        result = char._execute_if_statement(cond_true, then_cmds, else_cmds)
         self.assertTrue(result)
         self.assertEqual(state["then_count"], 2)
+        self.assertEqual(state["else_count"], 0)
 
         cond_false = ("ultimate", lambda self: False, [], {}, "ultimate")
-        result = char._execute_if_command(cond_false, then_cmds)
+        result = char._execute_if_statement(cond_false, then_cmds, else_cmds)
         self.assertFalse(result)
         self.assertEqual(state["then_count"], 2)
+        self.assertEqual(state["else_count"], 1)
 
     def test_if_runtime_treats_non_bool_condition_as_false(self):
         char = object.__new__(CustomChar)
         char.logger = Mock()
-        state = {"then_count": 0}
+        state = {"then_count": 0, "else_count": 0}
 
         cond_non_bool = ("ultimate", lambda self: "yes", [], {}, "ultimate")
-        then_cmds = [("skill", lambda self: state.__setitem__("then_count", state["then_count"] + 1), [], {}, "skill")]
-        result = char._execute_if_command(cond_non_bool, then_cmds)
+        then_cmds = [
+            (
+                "skill",
+                lambda self: state.__setitem__("then_count", state["then_count"] + 1),
+                [],
+                {},
+                "skill",
+            )
+        ]
+        else_cmds = [
+            (
+                "l_click",
+                lambda self: state.__setitem__("else_count", state["else_count"] + 1),
+                [],
+                {},
+                "l_click",
+            )
+        ]
+        result = char._execute_if_statement(cond_non_bool, then_cmds, else_cmds)
 
         self.assertFalse(result)
         self.assertEqual(state["then_count"], 0)
+        self.assertEqual(state["else_count"], 1)
         char.logger.warning.assert_called_once()
         self.assertIn("non-bool", char.logger.warning.call_args[0][0])
+
+    def test_if_return_stops_remaining_combo_commands(self):
+        char = object.__new__(CustomChar)
+        char.logger = Mock()
+        char.check_combat = Mock()
+        state = {"after_return": 0}
+        condition = ("ultimate", lambda self: True, [], {}, "ultimate")
+        return_command = ("return", CustomChar._return_combo, [], {}, "return")
+        after_command = (
+            "skill",
+            lambda self: state.__setitem__("after_return", state["after_return"] + 1),
+            [],
+            {},
+            "skill",
+        )
+        char.parsed_combo = [
+            (
+                "if",
+                CustomChar._execute_if_statement,
+                [condition, [return_command], []],
+                {},
+                "if ultimate: return",
+            ),
+            after_command,
+        ]
+
+        char._execute_parsed_combo()
+
+        self.assertEqual(state["after_return"], 0)
+        char.check_combat.assert_not_called()
+
+    def test_db_schema_migrates_v5_combo_syntax_and_creates_backup(self):
+        legacy = {
+            "schema_version": 5,
+            "combos": {
+                "combo_a": {"name": "combo_a", "content": "skill,if_(ultimate, wait(0.1)),arc"},
+                "combo_b": {"name": "combo_b", "content": "l_click(2)"},
+            },
+            "characters": {},
+            "features": {},
+            "fixed_team": {"enabled": False, "slots": []},
+        }
+        self._write_db(legacy)
+
+        manager = CustomCharManager()
+
+        self.assertEqual(self._read_persisted_db()["schema_version"], DB_SCHEMA_VERSION)
+        self.assertEqual(
+            manager.get_combo("combo_a"),
+            "skill\nif ultimate: wait(0.1)\narc",
+        )
+        self.assertEqual(manager.get_combo("combo_b"), "l_click(2)")
+        with open(f"{self.db_path}.pre-v6.bak", encoding="utf-8") as file:
+            self.assertEqual(json.load(file), legacy)
+
+        CustomCharManager._instance = None
+        manager = CustomCharManager()
+        self.assertEqual(manager.get_combo("combo_a"), "skill\nif ultimate: wait(0.1)\narc")
+
+    def test_db_schema_keeps_unmigratable_combo_and_reports_diagnostic(self):
+        legacy = {
+            "schema_version": 5,
+            "combos": {"combo_invalid": {"name": "broken", "content": "if_(ultimate)"}},
+            "characters": {},
+            "features": {},
+            "fixed_team": {"enabled": False, "slots": []},
+        }
+        self._write_db(legacy)
+
+        with patch("src.char.custom.CustomCharManager.logger") as manager_logger:
+            manager = CustomCharManager()
+
+        self.assertEqual(manager.get_combo("combo_invalid"), "if_(ultimate)")
+        warning_messages = [call.args[0] for call in manager_logger.warning.call_args_list]
+        self.assertTrue(any("not converted" in message for message in warning_messages))
+
+    def test_manager_reuses_the_global_database_object(self):
+        manager = CustomCharManager()
+        combo_id = manager.add_combo("immutable view", "skill")
+        database = manager._db
+
+        CustomCharManager._instance = None
+        reloaded_manager = CustomCharManager()
+
+        self.assertIs(reloaded_manager._db, database)
+        self.assertEqual(reloaded_manager.get_combo(combo_id), "skill")
+        self.assertFalse(hasattr(manager, "db"))
 
     def test_validate_db_removes_missing_feature_assets_and_metadata(self):
         existing_fid = "feat_exists"
@@ -239,8 +385,9 @@ class TestCustomCharCore(unittest.TestCase):
         char_info = manager.get_character_info_by_id(manager._find_character_id_by_name("char_a"))
         self.assertIsNotNone(char_info)
         self.assertEqual(char_info["feature_ids"], [existing_fid])
-        self.assertIn(existing_fid, manager.db["features"])
-        self.assertNotIn(missing_fid, manager.db["features"])
+        persisted = self._read_persisted_db()
+        self.assertIn(existing_fid, persisted["features"])
+        self.assertNotIn(missing_fid, persisted["features"])
 
     def test_char_name_is_stripped_and_kept_unique(self):
         manager = CustomCharManager()
@@ -298,9 +445,7 @@ class TestCustomCharCore(unittest.TestCase):
         legacy = {
             "schema_version": 4,
             "combos": {},
-            "characters": {
-                "char_001": {"name": "零", "combo_ref": "builtin:char_zero"}
-            },
+            "characters": {"char_001": {"name": "零", "combo_ref": "builtin:char_zero"}},
             "features": {},
             "fixed_team": {
                 "enabled": True,
@@ -316,191 +461,66 @@ class TestCustomCharCore(unittest.TestCase):
 
         self.assertTrue(fixed_team["enabled"])
         char_id = ""
-        for cid, cdata in manager.db["characters"].items():
-            if cdata["name"] == "零":
-                char_id = cid
+        for character_id, character_info in manager.get_all_characters().items():
+            if character_info["char_name"] == "零":
+                char_id = character_id
                 break
         self.assertNotEqual(char_id, "")
         self.assertEqual(fixed_team["slots"][0]["char_id"], char_id)
         self.assertEqual(fixed_team["slots"][0]["combo_id"], PREDEFINED_CHARACTER_ID)
         self.assertNotIn("combo_ref", fixed_team["slots"][0])
 
-    def _create_complete_team(self, manager, prefix="team"):
-        slots = []
-        for index in range(4):
-            char_id = manager.create_character(f"{prefix}_{index}", "")
-            slots.append({"char_id": char_id, "combo_id": ""})
-        return slots
-
-    def test_v5_to_v6_migration_preserves_ids_and_creates_backup(self):
-        legacy = {
+    def test_migrator_converts_in_memory_without_file_io(self):
+        context = MigrationContext(
+            is_builtin_combo=lambda _combo_id: False,
+            get_builtin_prefix=lambda: "[内置代码] ",
+            iter_builtin_combo_items=lambda: [],
+            generate_combo_id=lambda existing: f"combo_{len(existing or set())}",
+        )
+        source = {
             "schema_version": 5,
-            "combos": {"combo_stable": {"name": "stable", "content": "skill"}},
-            "characters": {
-                "char_stable": {
-                    "name": "stable hero",
-                    "combo_id": "combo_stable",
-                    "feature_ids": [],
-                }
-            },
+            "combos": {"combo_a": {"name": "combo_a", "content": "if_(ultimate, skill)"}},
+            "characters": {},
+            "features": {},
+        }
+
+        with patch("builtins.open", side_effect=AssertionError("migration must not open files")):
+            result = CustomCharDbMigrator(context, DB_SCHEMA_VERSION).migrate(source)
+
+        self.assertTrue(result.modified)
+        self.assertTrue(result.needs_backup)
+        self.assertEqual(result.db["combos"]["combo_a"]["content"], "if ultimate: skill")
+
+    def test_migrator_converts_legacy_layout_and_builtin_reference(self):
+        context = MigrationContext(
+            is_builtin_combo=lambda combo_id: combo_id == PREDEFINED_CHARACTER_ID,
+            get_builtin_prefix=lambda: "[内置代码] ",
+            iter_builtin_combo_items=lambda: [("Zero", PREDEFINED_CHARACTER_ID)],
+            generate_combo_id=lambda existing: f"combo_{len(existing or set())}",
+        )
+        source = {
+            "schema_version": 3,
+            "combos": {"custom": "skill"},
+            "characters": {"legacy": {"combo_name": "custom", "feature_ids": []}},
             "features": {},
             "fixed_team": {
                 "enabled": True,
-                "slots": [{"char_id": "char_stable", "combo_id": "combo_stable"}],
+                "slots": [{"char_name": "legacy", "combo_ref": "builtin:char_zero"}],
             },
         }
-        self._write_db(legacy)
 
-        manager = CustomCharManager()
+        result = CustomCharDbMigrator(context, DB_SCHEMA_VERSION).migrate(source)
 
-        self.assertEqual(manager.db["schema_version"], 6)
-        self.assertIn("combo_stable", manager.db["combos"])
-        self.assertIn("char_stable", manager.db["characters"])
-        self.assertEqual(manager.get_fixed_team()["selection_mode"], "manual")
-        self.assertTrue(os.path.exists(f"{self.db_path}.schema-v5.bak"))
-
-        with open(f"{self.db_path}.schema-v5.bak", "r", encoding="utf-8") as f:
-            backup = json.load(f)
-        self.assertEqual(backup, legacy)
-
-        CustomCharManager._instance = None
-        reloaded = CustomCharManager()
-        self.assertEqual(reloaded.db["schema_version"], 6)
-        self.assertEqual(reloaded.get_fixed_team(), manager.get_fixed_team())
-
-    def test_future_schema_is_rejected_without_rewriting_file(self):
-        future = {
-            "schema_version": DB_SCHEMA_VERSION + 1,
-            "combos": {},
-            "characters": {},
-            "features": {},
-            "fixed_team": {"future_only": {"keep": True}},
-        }
-        self._write_db(future)
-        before = Path(self.db_path).read_bytes()
-
-        with self.assertRaisesRegex(RuntimeError, "newer than supported"):
-            CustomCharManager()
-
-        self.assertEqual(Path(self.db_path).read_bytes(), before)
-
-    def test_migration_save_failure_keeps_original_and_backup(self):
-        legacy = {
-            "schema_version": 5,
-            "combos": {},
-            "characters": {},
-            "features": {},
-            "fixed_team": {"enabled": False, "slots": []},
-        }
-        self._write_db(legacy)
-        before = Path(self.db_path).read_bytes()
-
-        with (
-            patch("src.char.custom.CustomCharManager.CustomCharDb.save_db", return_value=False),
-            self.assertRaisesRegex(RuntimeError, "Unable to save migrated"),
-        ):
-            CustomCharManager()
-
-        self.assertEqual(Path(self.db_path).read_bytes(), before)
-        self.assertTrue(os.path.exists(f"{self.db_path}.schema-v5.bak"))
-
-    def test_named_team_preset_projection_arm_and_one_shot_consume(self):
-        manager = CustomCharManager()
-        slots = self._create_complete_team(manager, "baicang")
-
-        self.assertTrue(
-            manager.set_team_preset("team_baicang_speed", "白藏竞速队", slots, activate=True)
+        self.assertEqual(result.db["schema_version"], DB_SCHEMA_VERSION)
+        self.assertEqual(result.db["combos"]["combo_0"]["content"], "skill")
+        self.assertEqual(result.db["characters"]["char_0001"]["combo_id"], "combo_0")
+        self.assertEqual(
+            result.db["fixed_team"]["slots"][0],
+            {
+                "char_id": "char_0001",
+                "combo_id": PREDEFINED_CHARACTER_ID,
+            },
         )
-        selected = manager.get_fixed_team()
-        self.assertEqual(selected["active_preset_id"], "team_baicang_speed")
-        self.assertFalse(selected["enabled"])
-        self.assertEqual(selected["slots"], slots)
-
-        self.assertTrue(manager.arm_team_preset("team_baicang_speed"))
-        armed = manager.get_fixed_team()
-        self.assertTrue(armed["enabled"])
-        self.assertEqual(armed["armed_for_next_battle"], "team_baicang_speed")
-
-        consumed = manager.consume_armed_team_preset("team_baicang_speed")
-        self.assertEqual(consumed["preset_id"], "team_baicang_speed")
-        after = manager.get_fixed_team()
-        self.assertFalse(after["enabled"])
-        self.assertEqual(after["armed_for_next_battle"], "")
-        self.assertEqual(after["active_preset_id"], "team_baicang_speed")
-        self.assertIsNone(manager.consume_armed_team_preset("team_baicang_speed"))
-
-    def test_team_preset_requires_four_unique_characters(self):
-        manager = CustomCharManager()
-        slots = self._create_complete_team(manager)
-        duplicate_slots = list(slots)
-        duplicate_slots[3] = dict(duplicate_slots[0])
-
-        self.assertFalse(manager.set_team_preset("team", "team", slots[:3]))
-        self.assertFalse(manager.set_team_preset("team", "team", duplicate_slots))
-        self.assertFalse(manager.set_team_preset("bad id", "team", slots))
-        self.assertEqual(manager.get_team_presets(), {})
-
-    def test_team_preset_save_failure_rolls_back_memory(self):
-        manager = CustomCharManager()
-        slots = self._create_complete_team(manager)
-        before = manager.get_fixed_team()
-
-        with patch("src.char.custom.CustomCharManager.CustomCharDb.save_db", return_value=False):
-            saved = manager.set_team_preset("team_safe", "safe", slots)
-
-        self.assertFalse(saved)
-        self.assertEqual(manager.get_fixed_team(), before)
-
-    def test_character_and_combo_deletion_clean_all_preset_references(self):
-        manager = CustomCharManager()
-        combo_id = manager.add_combo("local override", "skill")
-        slots = self._create_complete_team(manager)
-        slots[0]["combo_id"] = combo_id
-        removed_char_id = slots[1]["char_id"]
-        self.assertTrue(manager.set_team_preset("team_cleanup", "cleanup", slots))
-        self.assertTrue(manager.arm_team_preset("team_cleanup"))
-
-        manager.delete_combo(combo_id)
-        preset = manager.get_team_preset("team_cleanup")
-        self.assertEqual(preset["slots"][0]["combo_id"], "")
-
-        manager.delete_character(removed_char_id)
-        preset = manager.get_team_preset("team_cleanup")
-        self.assertEqual(preset["slots"][1], {"char_id": "", "combo_id": ""})
-        fixed_team = manager.get_fixed_team()
-        self.assertFalse(fixed_team["enabled"])
-        self.assertEqual(fixed_team["armed_for_next_battle"], "")
-
-    def test_team_preset_member_matching_requires_one_unique_preset(self):
-        manager = CustomCharManager()
-        slots = self._create_complete_team(manager)
-        char_ids = [slot["char_id"] for slot in slots]
-        self.assertTrue(manager.set_team_preset("team_a", "A", slots))
-        self.assertEqual(manager.match_team_preset(list(reversed(char_ids))), "team_a")
-
-        self.assertTrue(manager.set_team_preset("team_b", "B", list(reversed(slots))))
-        self.assertIsNone(manager.match_team_preset(char_ids))
-        self.assertIsNone(manager.match_team_preset(char_ids[:3]))
-
-    def test_auto_team_selection_clears_stale_manual_arm_but_keeps_presets(self):
-        manager = CustomCharManager()
-        slots = [
-            {"char_id": f"char_{index}", "combo_id": PREDEFINED_CHARACTER_ID}
-            for index in range(4)
-        ]
-        for index in range(4):
-            manager.create_character(f"char_{index}", PREDEFINED_CHARACTER_ID)
-        self.assertTrue(manager.set_team_preset("team_auto", "auto", slots, activate=True))
-        self.assertTrue(manager.arm_team_preset("team_auto"))
-
-        self.assertTrue(manager.set_team_selection_mode("auto"))
-        configured = manager.get_fixed_team()
-
-        self.assertEqual(configured["selection_mode"], "auto")
-        self.assertEqual(configured["armed_for_next_battle"], "")
-        self.assertIn("team_auto", configured["presets"])
-        self.assertTrue(manager.set_team_selection_mode("manual"))
-        self.assertFalse(manager.set_team_selection_mode("unexpected"))
 
 
 if __name__ == "__main__":

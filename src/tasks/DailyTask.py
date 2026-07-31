@@ -11,6 +11,7 @@ from src.Labels import Labels
 from src.tasks.AnomalyTask import AnomalyTask
 from src.tasks.BaseNTETask import BaseNTETask
 from src.tasks.CoffeeTask import CoffeeTask
+from src.tasks.FountainTask import FountainTask
 from src.tasks.GiftTask import GiftTask
 from src.tasks.mixin.CinemaDateMixin import CinemaDateMixin
 from src.tasks.NTEOneTimeTask import NTEOneTimeTask
@@ -24,7 +25,8 @@ class DailyTask(NTEOneTimeTask, CinemaDateMixin, BaseNTETask):
 
     # --- 配置项键名 ---
     CONF_TASK = "副本类型"
-    TASK = [AnomalyTask.NAME]
+    TASK_NONE = "不执行"
+    TASK = [TASK_NONE, AnomalyTask.NAME]
 
     CONF_CLAIM_MAIL = "领取邮件"
     CONF_COMPLETE_DAILY = "完成每日活跃度"
@@ -32,6 +34,7 @@ class DailyTask(NTEOneTimeTask, CinemaDateMixin, BaseNTETask):
     CONF_CLAIM_BP = "领取环期任务奖励"
     CONF_COFFEE_TASK = "一咖舍任务"
     CONF_CINEMA_DATE = "影院约会"
+    CONF_FOUNTAIN_SIGN = "喷泉签到"
     CONF_FURNITURE = "异象家具"
     CONF_GIFT = "羁遇赠礼"
 
@@ -56,11 +59,12 @@ class DailyTask(NTEOneTimeTask, CinemaDateMixin, BaseNTETask):
         AnomalyTask.setup_config(self, daily=True)
         self.default_config.update(
             {
-                self.CONF_TASK: self.TASK[0],
+                self.CONF_TASK: self.TASK[1],
                 self.DAILY_STAMINA_TARGET: 180,
                 self.CONF_COFFEE_TASK: self.COFFEE_MODE_NONE,
                 self.CONF_CINEMA_DATE: False,
                 self.CINEMA_DATE_TARGET: "",
+                self.CONF_FOUNTAIN_SIGN: False,
                 self.CONF_FURNITURE: False,
                 self.CONF_GIFT: False,
             }
@@ -80,9 +84,10 @@ class DailyTask(NTEOneTimeTask, CinemaDateMixin, BaseNTETask):
                     "type": "drop_down",
                     "options": self.TASK,
                     "sub_configs": {
-                        self.TASK[0]: [
+                        self.TASK[1]: [
                             AnomalyTask.CONF_TASK_TYPE,
                             AnomalyTask.CONF_AUTO_CYCLE_SUB_TASK,
+                            self.DAILY_STAMINA_TARGET,
                         ],
                     },
                 },
@@ -127,11 +132,6 @@ class DailyTask(NTEOneTimeTask, CinemaDateMixin, BaseNTETask):
                 self.claim_mail,
             ),
             (
-                self.CONF_COFFEE_TASK,
-                self.config.get(self.CONF_COFFEE_TASK) in coffee_mode,
-                self.run_coffee_task,
-            ),
-            (
                 self.CONF_COMPLETE_DAILY,
                 self._task_enabled(self.CONF_COMPLETE_DAILY, True),
                 self.complete_daily_activities,
@@ -142,6 +142,11 @@ class DailyTask(NTEOneTimeTask, CinemaDateMixin, BaseNTETask):
                 self.claim_activity_rewards,
             ),
             (
+                self.CONF_COFFEE_TASK,
+                self.config.get(self.CONF_COFFEE_TASK) in coffee_mode,
+                self.run_coffee_task,
+            ),
+            (
                 self.CONF_CLAIM_BP,
                 self._task_enabled(self.CONF_CLAIM_BP, True),
                 self.claim_battle_pass_rewards,
@@ -150,6 +155,11 @@ class DailyTask(NTEOneTimeTask, CinemaDateMixin, BaseNTETask):
                 self.CONF_CINEMA_DATE,
                 self._task_enabled(self.CONF_CINEMA_DATE, False),
                 lambda: self.run_cinema_date(self.config.get(self.CINEMA_DATE_TARGET, "")),
+            ),
+            (
+                self.CONF_FOUNTAIN_SIGN,
+                self._task_enabled(self.CONF_FOUNTAIN_SIGN, False),
+                self.run_fountain_sign_task,
             ),
             (
                 self.CONF_FURNITURE,
@@ -491,6 +501,10 @@ class DailyTask(NTEOneTimeTask, CinemaDateMixin, BaseNTETask):
         self.operate_click(0.600, 0.656)  # 确认
         return True
 
+    def run_fountain_sign_task(self):
+        with self.set_working_task(FountainTask) as task:
+            return task.do_run()
+
     def claim_anomaly_furniture(self):
         """领取异象家具奖励"""
 
@@ -522,14 +536,12 @@ class DailyTask(NTEOneTimeTask, CinemaDateMixin, BaseNTETask):
         ratio_x = 0.079
         ratio_y = 0.308
         gap = 0.183
-        scroll = True
-        scroll_times = 0
         scroll_per_item = 6
-        i = 0
 
         def claim_furniture(furniture):
-            nonlocal scroll, scroll_times, i
-
+            scroll = True
+            scroll_times = 0
+            i = 0
             is_initial = True
             if not open_house_panel():
                 return False
@@ -646,7 +658,8 @@ class DailyTask(NTEOneTimeTask, CinemaDateMixin, BaseNTETask):
                 ),
                 block=True,
             )
-            self.sleep(2)
+            self.sleep(0.5)
+            self.ensure_main()
             return True
 
         furniture_results = {}
@@ -666,7 +679,6 @@ class DailyTask(NTEOneTimeTask, CinemaDateMixin, BaseNTETask):
             furniture_results[furniture] = claimed
             result = "成功" if claimed else "失败"
             self.log_info(f"异象家具 {furniture} 领取{result}")
-            self.ensure_main()
 
         all_claimed = all(furniture_results.values())
         if all_claimed:

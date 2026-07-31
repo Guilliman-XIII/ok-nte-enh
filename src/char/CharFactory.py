@@ -11,6 +11,7 @@ from src.char.Daphneel import Daphneel
 from src.char.Fadia import Fadia
 from src.char.Hania import Hania
 from src.char.Hotori import Hotori
+from src.char.Iroi import Iroi
 from src.char.Jiuyuan import Jiuyuan
 from src.char.Lacrimosa import Lacrimosa
 from src.char.Mint import Mint
@@ -44,6 +45,7 @@ char_dict: dict[str, dict[str, Any]] = {
     "char_fadia": {"cls": Fadia, "cn_name": "法帝娅", "element": Element.BLUE},
     "char_shinku": {"cls": Shinku, "cn_name": "真红", "element": Element.WHITE},
     "char_yi": {"cls": Yi, "cn_name": "翳", "element": Element.YELLOW},
+    "char_iroi": {"cls": Iroi, "cn_name": "伊洛伊", "element": Element.GREEN},
 }
 
 char_names = char_dict.keys()
