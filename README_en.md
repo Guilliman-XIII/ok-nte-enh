@@ -20,6 +20,17 @@
   </p>
 </div>
 
+## 🚀 What's New in This Enhanced Fork
+
+> This repository is an enhanced branch based on upstream [**BnanZ0/ok-nte**](https://github.com/BnanZ0/ok-nte) (v1.2.24), focused on **auto combat** and **dual-team Abyss** stability and automation, adding the following on top of upstream:
+
+- **Button Farm Spot (dodge-only AFK)**: New AFK spot in the 999 Nights task. After switching characters and running into combat, the script only auto-dodges and never attacks, letting enemies die on their own.
+- **New Character Iloy**: Added to dual-team Abyss recognition and auto-combat, supporting gather, heal, and dream-state burst linkage.
+- **Enhanced Dual-Team Abyss Recognition**: Improved team detection, combat session preservation, and strategy continuity when targets briefly drop, reducing mid-fight team rebinding stutter.
+- **Strengthened Character Combat Logic**: Enhanced combos and collaboration for Baicang, Mint, Shinku, Zero, Chiz, and more.
+
+> These are incremental enhancements; all upstream features and usage remain unchanged. See [Usage Guide & FAQ](#--usage-guide--faq) below for installation and usage.
+
 ## ⚠️ Disclaimer
 
 > [!CAUTION]
