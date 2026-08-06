@@ -1,97 +1,68 @@
-[English](README_en.md) | [简体中文](README.md)
+# ok-nte-enh
 
 <div align="center">
-  <img src="icons/icon.png" alt="icon" width="200"><br>
-  <h1>ok-nte</h1>
-  <p>An image-recognition-based automation tool for <em>Neverness To Everness</em>, with background operation support.</p>
-  <p>Developed based on the <a href="https://github.com/ok-oldking/ok-script">ok-script</a> framework and <a href="https://github.com/BnanZ0/ok-nte">ok-nte</a>.</p>
+  <p><strong>Automation tool for <em>Neverness To Everness</em> · Enhanced auto-combat edition</strong></p>
+  <p>Image-recognition and audio-driven automation with support for background operation, auto combat, and dual-team Abyss.</p>
 </div>
 
-## 🚀 Changes in This Fork
+## About
 
-> This repository is based on [**BnanZ0/ok-nte**](https://github.com/BnanZ0/ok-nte) (v1.2.24), with the following adjustments to auto combat and dual-team Abyss for players who want to solo-farm the Abyss:
+This project is an automation assistant for *Neverness To Everness* players. It builds on image-recognition automation and focuses on **auto combat** and **dual-team Abyss** capabilities, for players who want to solo-farm the Abyss or AFK-farm EXP.
 
-- **Button Farm Spot (dodge-only AFK)**: New AFK spot in the 999 Nights task that only auto-dodges and never attacks.
+## ✨ Highlights
+
+### Enhanced Auto Combat
 - **New Character Iloy**: Added to dual-team Abyss recognition and auto-combat, supporting gather, heal, and dream-state burst linkage.
-- **Dual-Team Abyss Recognition**: Improved team detection, combat session preservation, and strategy continuity when targets briefly drop.
-- **Character Combat Logic**: Adjusted combos and collaboration for Baicang, Mint, Shinku, Zero, Chiz, and more.
+- **Multi-character Combo Optimization**: Optimized combos and collaboration for Baicang, Mint, Shinku, Zero, Chiz, and more.
+- **Dual-team Auto Detection**: Improved team detection, combat session preservation, and strategy continuity when targets briefly drop.
 
-> These are incremental changes only; all upstream features and usage remain unchanged. See [Usage Guide & FAQ](#--usage-guide--faq) below for installation and usage.
+### Convenient AFK Features
+- **Button Farm Spot (dodge-only AFK)**: A new AFK spot in the 999 Nights task that only auto-dodges and never attacks, ideal for AFK EXP farming.
+- **Background Operation**: Automate game actions while the game runs in the background.
 
-## ⚠️ Disclaimer
-
-> [!CAUTION]
-> **This software is an open-source, free external tool intended for learning and exchange purposes only. It is designed to automate the gameplay of *Neverness To Everness* by interacting with the game solely through the existing user interface and in compliance with relevant laws and regulations.**
->
-> - **Mechanism**: The package is intended to provide a simplified way for users to interact with the game. This package does not modify any game files or game code in any way.
-> - **Purpose**: It is not meant to disrupt the game balance or provide any unfair advantage.
-> - **Liability**: All issues and consequences arising from the use of this software are not related to this project or its development team. The development team reserves the final right of interpretation for this project.
-> - **Commercialization**: If you encounter vendors using this software for services and charging a fee, this may cover their costs for equipment and time; any resulting problems or consequences are not associated with this software.
-
-> [!WARNING]
-> **Please Note: According to the [*Neverness To Everness* Fair Play Declaration](https://nte.perfectworld.com/en/article/news/gamebroad/20260206/260828.html):**
->
-> The use of any third-party tools that undermine fair gameplay is strictly prohibited. We will take strong action against violations involving illegal tools such as cheats, speed hacks, macro scripts, and similar software.
->
-> Prohibited behaviors include, but are not limited to: auto-farming, skill acceleration, god mode, teleportation, and game data manipulation. Any account found to be involved in such activities will be banned upon verification.
->
-> **You should fully understand and voluntarily assume all potential risks associated with using this tool.**
-
-## ✨ Main Features
-
-<p align="center">
-  <img width="950" alt="ok-nte-gif-en" src="./assets/gif/ok-nte-gif-en.gif" />
-</p>
-
-- **Background Operation**: Automate game actions while in the background.
-
-### 📅 Dailies/Weeklies
-- **One-click Dailies**: Automatically complete daily routines. Supports sub-items: EXP & Beetle Coins, Ability Upgrade, Arc Ascension, Console, Cafe Tasks, Cinema Date, and Bond Gifts.
+### Dailies & Lifestyle
+- **One-click Dailies**: Automatically complete daily routines, including EXP & Beetle Coins, Ability Upgrade materials, Arc Ascension materials, Console, Cafe Tasks, Cinema Date, and Bond Gifts.
 - **Bond Gifts**: Automatically send gifts to characters.
-
-### 🍹 Hobbies
-- **Auto Fishing**: Fully automated fishing process.
+- **Auto Fishing**: Fully automated fishing.
 - **Auto Drum Rhythm Game**: Automatically complete drum rhythm games.
 - **Owner's Selection**: Automatically loop entering and exiting stages (requires an in-game AFK build).
-- **Auto Pink Paws Heist**: Automatically complete Pink Paws Heist (410,000+ Force/hour, 2500+ Pink Paws Coins/hour).
-- **Pink Paws Heist Convenience Features**
-  - **Quick Pickup**: Quickly pick up items in stages.
-  - **Auto Character Switch for Sprinting**: Automatically switch characters to maintain fast running.
+- **Auto Pink Paws Heist**: Automatically complete the Pink Paws Heist.
 
-### 📋 Specific AFK & Instances (Tasks)
-- **999 Nights**: AFK farming for EXP.
-- **Anomaly Domain**: Automate Anomaly Domain.
-- **Anomaly Hunts**：Automate Anomaly Hunts。
-- **Auto Whirlwind**: Automatically completes 'Whirlwind' challenges.
-- **Bagel Agent**: Automatically posts, replies, and likes in the Bagel community, or assists in generating copy in assistant mode.
-
-### ⚡ Constant Triggers & Combat (Triggers/Character Center)
-- **Auto Combat**: Computer vision-based combat algorithm, supported by **Character Center** for custom combo lists and feature management.
-- **Character Center**: Provides support for **Auto Combat**.
-  - **Character Management**: Supports custom combo lists.
-  - **Feature Management**: Adapts to different character skins.
+### Combat Assist
+- **Character Center**: Custom combo lists and feature management, adapting to different character skins.
 - **Audio Driven**: Auto dodge and counter based on audio feedback.
 - **Skip Dialog**: Rapidly skip through story dialogs.
 - **Fast Travel**: Automatic map teleportation.
 
-### 🎹 Independent Entertainment & Utilities
-- **Auto Piano**: Automatically analyzes MIDI tracks and plays the piano.
+### Entertainment
+- **Auto Piano**: Automatically analyze MIDI tracks and play the piano.
+
+## ⚠️ Disclaimer
+
+> [!CAUTION]
+> **This software is an open-source, free external tool intended for learning and exchange purposes only. It automates the gameplay of *Neverness To Everness* by interacting with the game solely through the existing UI.**
+>
+> - **Mechanism**: The program interacts with the game only by recognizing the existing UI; it does not modify any game files or code.
+> - **Purpose**: It is intended to provide convenience and is not meant to disrupt game balance or provide unfair advantages.
+> - **Account Risk**: Using automation tools may result in account penalties. Please fully understand the associated risks before use.
+> - **Liability**: All issues and consequences arising from the use of this software are not related to this project or its developers.
+
+> [!WARNING]
+> **Per the *Neverness To Everness* Fair Play Declaration, the official policy strictly prohibits any third-party tools that undermine fair gameplay, including but not limited to auto-farming and skill acceleration. Verified violations may result in penalty deductions, account freezes, or permanent bans.**
+>
+> **You should fully understand and voluntarily assume all potential risks associated with using this tool.**
 
 ## 🖥️ System Requirements & Compatibility
 
 *   **Operating System**: Windows
-*   **Game Resolution**: 1920x1080 or higher (**16:9 aspect ratio only**)
+*   **Game Resolution**: 1920×1080 or higher (**16:9 aspect ratio only**)
 *   **Game Language**: Simplified Chinese / English
 
 ## 🚀 Installation Guide
 
 ### Method 1: Using the Installer (Recommended)
 
-This method is suitable for most users. It's simple, fast, and supports automatic updates.
-
-1.  Go to the [**Releases**](https://github.com/BnanZ0/ok-nte/releases) page.
-2.  Download the latest `ok-nte-win32-Global-setup.exe` file.
-3.  Double-click the installer and follow the prompts to complete the installation.
+This method is suitable for most users. It is simple, fast, and supports automatic updates. Download the latest installer from the **Releases** page of this repository.
 
 ### Method 2: Running from Source (For Developers)
 
@@ -100,8 +71,8 @@ This method requires a Python environment and is suitable for users who want to 
 1.  **Prerequisites**: Ensure you have **Python 3.12** or a newer version installed.
 2.  **Clone the repository**:
     ```bash
-    git clone https://github.com/BnanZ0/ok-nte.git
-    cd ok-nte
+    git clone https://github.com/Guilliman-XIII/ok-nte-enh.git
+    cd ok-nte-enh
     ```
 3.  **Install dependencies**:
     ```bash
@@ -109,20 +80,18 @@ This method requires a Python environment and is suitable for users who want to 
     # or
     pip install -r requirements.txt
     ```
-
-    **💡 Tip**: After pulling new code, it's recommended to run this command again to ensure all dependencies are up to date.
 4.  **Run the application**:
     ```bash
     # Run the standard version
     python main.py
-    
+
     # Run the debug version (outputs more detailed logs)
     python main_debug.py
     ```
 
-## 📖 Usage Guide & FAQ
+## 📖 Usage Guide
 
-To ensure the program runs stably, please carefully read the following configuration requirements and frequently asked questions before use.
+To ensure the program runs stably, please confirm the following configuration before use.
 
 ### 1. Pre-use Configuration (Required)
 
@@ -131,23 +100,15 @@ To ensure the program runs stably, please carefully read the following configura
 >
 > *   **Graphics Settings**
 >     *   **Game Brightness**: Use the **default** in-game brightness.
->     *   **UI Settings**: **Disable** all settings that cause the UI to differ from the default
->         *   **UI Opacity** must be set to **1.0**.
+>     *   **UI Settings**: **Disable** all settings that cause the UI to differ from the default; **UI Opacity** must be **1.0**.
 >     *   **Graphics Filters**: **Disable** all graphics card filters and sharpening effects (e.g., NVIDIA Freestyle, AMD FidelityFX).
->     *   **GPU Color (AMD users)**: Display colors need to match standard NVIDIA defaults to avoid image recognition issues. If color discrepancies cause failures, try enabling **"Automatically manage color for apps"** in Windows system settings.
-> *   **Resolution**
->     *   Recommended to use **1920x1080** or higher **16:9** resolutions.
-> *   **Keybindings**
->     *   Please use the game's **default** keybindings.
-> *   **Camera Settings**
->     *   **Movement Camera Correction**: Disabled
->     *   **Press to Reset Camera**: Enabled
-> *   **Third-party Software**
->     *   Disable any overlays that display information on the game screen, such as the **framerate counter** from MSI Afterburner.
+> *   **Resolution**: Recommended to use **1920×1080** or higher **16:9** resolutions.
+> *   **Keybindings**: Please use the game's **default** keybindings.
+> *   **Third-party Software**: Disable any overlays that display information on the game screen (e.g., MSI Afterburner's framerate counter).
 
 > [!WARNING]
 > **Window and System State Precautions**
-> *   **Mouse Interference**: When the game window is in the **foreground**, do not move your mouse, as it will interfere with the program's simulated clicks.
+> *   **Mouse Interference**: When the game window is in the **foreground**, do not move your mouse, as it will interfere with the program's simulated inputs.
 > *   **Window State**: The game window can be in the background but **must not be minimized**.
 > *   **System State**: Do not let your computer **turn off the display** or **lock the screen**, as this will interrupt the program.
 
@@ -156,58 +117,18 @@ To ensure the program runs stably, please carefully read the following configura
 1.  Navigate to the level or scene you want to automate.
 2.  Click the **"Start"** button in the program's interface.
 
-### 3. Frequently Asked Questions (FAQ)
+## 💬 Bug Reports & Feedback
 
-*   **None**
-
-### 4. Bug Reports & Feedback
-
-If the solutions above do not resolve your issue, feel free to report it via [**Issues**](https://github.com/BnanZ0/ok-nte/issues). To help us quickly identify the problem, please provide the following information in your report:
+If you encounter issues, feel free to report them via the [**Issues**](https://github.com/Guilliman-XIII/ok-nte-enh/issues) page of this repository. To help us quickly identify the problem, please provide:
 
 *   **Screenshot**: A clear image of the error or unusual behavior.
 *   **Log File**: Attach the `.log` file from the program's directory.
 *   **Detailed Description**: What were you doing? What exactly happened? Can you reproduce the issue consistently, or does it happen randomly?
 
-## 💻 Command Line Arguments
+## 🔗 Acknowledgments
 
-You can automate startup by using command line arguments.
+This project is developed based on the [ok-script](https://github.com/ok-oldking/ok-script) framework and draws on open-source community practices. Thanks to all open-source contributors.
 
-```bash
-# Example: Automatically execute the second task (daily tasks) upon startup, and exit the program once the task completes
-ok-nte.exe -t 2 -e
-```
+## 📄 License
 
-*   `-t` or `--task`: Automatically execute the N-th task upon startup. `1` represents the first task in the task list.
-*   `-e` or `--exit`: Automatically exit the program after the task is completed.
-
-## 💬 Community
-
-*   **Discord**: [https://discord.gg/vVyCatEBgA](https://discord.gg/vVyCatEBgA)
-
-## 🔗 Projects developed using [ok-script](https://github.com/ok-oldking/ok-script):
-
-* Wuthering Waves [https://github.com/ok-oldking/ok-wuthering-waves](https://github.com/ok-oldking/ok-wuthering-waves)
-* End Field [https://github.com/AliceJump/ok-end-field](https://github.com/AliceJump/ok-end-field)
-* Genshin Impact (discontinued, but background story progression is still usable) [https://github.com/ok-oldking/ok-genshin-impact](https://github.com/ok-oldking/ok-genshin-impact)
-* Girls' Frontline 2 [https://github.com/ok-oldking/ok-gf2](https://github.com/ok-oldking/ok-gf2)
-* Honkai: Star Rail [https://github.com/Shasnow/ok-starrailassistant](https://github.com/Shasnow/ok-starrailassistant)
-* Star-Resonance [https://github.com/Sanheiii/ok-star-resonance](https://github.com/Sanheiii/ok-star-resonance)
-* Duet Night Abyss [https://github.com/BnanZ0/ok-duet-night-abyss](https://github.com/BnanZ0/ok-duet-night-abyss)
-* Ash Echoes (discontinued) [https://github.com/ok-oldking/ok-baijing](https://github.com/ok-oldking/ok-baijing)
-
-## ❤️ Support & Acknowledgments
-
-### Contributors
-
-<a href="https://github.com/BnanZ0/ok-nte/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=BnanZ0/ok-nte" />
-</a>
-
-### Sponsors
-*   **EXE Signing**: Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
-
-### Acknowledgments
-*   [ok-oldking/OnnxOCR](https://github.com/ok-oldking/OnnxOCR)
-*   [zhiyiYo/PyQt-Fluent-Widgets](https://github.com/zhiyiYo/PyQt-Fluent-Widgets)
-*   [Toufool/AutoSplit](https://github.com/Toufool/AutoSplit)
-*   [ImLaoBJie/ZZZSoundTrigger](https://github.com/ImLaoBJie/ZZZSoundTrigger)
+This project is open-sourced under the GPL-3.0 license. See [LICENSE](LICENSE) for details.
