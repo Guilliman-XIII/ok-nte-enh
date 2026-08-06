@@ -27,6 +27,10 @@ class FakeTask:
     def __init__(self):
         self.chars = []
         self.reaction_target = None
+        # Baicang _checkpointed_dodge R 检查需要 send_key 和 get_arc_key
+        from unittest.mock import MagicMock
+        self.send_key = MagicMock()
+        self.get_arc_key = MagicMock(return_value="r")
 
     def time_elapsed_accounting_for_freeze(self, start, intro_motion_freeze=False):
         return 999

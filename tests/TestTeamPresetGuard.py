@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock, PropertyMock, patch
 
 import numpy as np
@@ -13,6 +14,7 @@ class TestTeamPresetGuard(unittest.TestCase):
         task._strict_team_last_error = ""
         task.log_error = Mock()
         task.log_info = Mock()
+        task.chars = []
         return task
 
     @staticmethod
@@ -162,6 +164,42 @@ class TestTeamPresetGuard(unittest.TestCase):
         self.assertFalse(task.ensure_team_binding(force=True))
         task.load_chars.assert_called_once_with(visible_match=following)
 
+    def test_live_binding_recovers_same_team_after_transient_occlusion(self):
+        task = self._task()
+        current = self._visible_match("upper")
+        task._team_binding = current
+        task._pending_team_binding = None
+        task._team_binding_last_check = 0.0
+        task._in_animation = False
+        task.in_team = Mock(return_value=(True, 0, 3))
+        task._match_visible_team_preset = Mock(return_value=None)
+        task._stabilize_live_team_binding = Mock(return_value=current)
+
+        self.assertTrue(task.ensure_team_binding(force=True))
+        self.assertIsNone(task._pending_team_binding)
+
+    def test_live_binding_recovery_still_requires_stable_handoff(self):
+        task = self._task()
+        previous = self._visible_match("upper")
+        following = self._visible_match("lower", ("char_3", "char_2", "char_1", "char_0"))
+        task._team_binding = previous
+        task._pending_team_binding = None
+        task._team_binding_last_check = 0.0
+        task._in_animation = False
+        task.in_team = Mock(return_value=(True, 0, 3))
+        task._match_visible_team_preset = Mock(side_effect=[None, following])
+        task._stabilize_live_team_binding = Mock(return_value=following)
+        task._is_auto_team_selection_enabled = Mock(return_value=True)
+        task.load_chars = Mock(return_value=True)
+
+        self.assertFalse(task.ensure_team_binding(force=True))
+        task.load_chars.assert_not_called()
+        self.assertEqual(task._pending_team_binding, following)
+
+        task.in_team.return_value = (True, 0, 4)
+        self.assertFalse(task.ensure_team_binding(force=True))
+        task.load_chars.assert_called_once_with(visible_match=following)
+
     def test_manual_handoff_clears_old_routes_without_rebinding(self):
         task = self._task()
         task._team_binding = self._visible_match("upper")
@@ -177,6 +215,55 @@ class TestTeamPresetGuard(unittest.TestCase):
 
         self.assertFalse(task.ensure_team_binding(force=True))
         task.combat_planner.reset.assert_called_once_with([])
+        self.assertTrue(task.team_binding_is_blocked())
+
+    def test_manual_handoff_blocks_only_once_until_team_is_explicitly_reloaded(self):
+        task = self._task()
+        task._team_binding = self._visible_match("upper")
+        task._pending_team_binding = None
+        task._team_binding_last_check = 0.0
+        task._team_binding_blocked = False
+        task._in_animation = False
+        task.in_team = Mock(return_value=(True, 0, 4))
+        task._match_visible_team_preset = Mock(
+            return_value=self._visible_match("lower", ("char_3", "char_2", "char_1", "char_0"))
+        )
+        task._is_auto_team_selection_enabled = Mock(return_value=False)
+        task.combat_planner = Mock()
+
+        self.assertFalse(task.ensure_team_binding(force=True))
+        self.assertFalse(task.ensure_team_binding(force=True))
+
+        task.combat_planner.reset.assert_called_once_with([])
+        task.log_error.assert_called_once()
+
+    def test_setup_only_abyss_member_returns_to_main_dps_instead_of_normal_attacking(self):
+        task = object.__new__(BaseCombatTask)
+        current = Mock(index=2)
+        target = Mock(index=0)
+        task.combat_session = SimpleNamespace(switch_enabled=True)
+        task.chars = [target, current]
+        task.combat_planner = Mock()
+        task.combat_planner.decide_switch.return_value = SimpleNamespace(
+            target=current,
+            has_intro=False,
+            reason="no switch target",
+            expected_entry=None,
+        )
+        task.combat_planner.has_strict_route.return_value = False
+        task._wait_switch_in_guard = Mock()
+        task._switch_to_char = Mock()
+
+        with (
+            patch.object(BaseCombatTask, "team_size", new_callable=PropertyMock, return_value=4),
+            patch("src.combat.team_strategies.abyss_setup_exit_target", return_value=target),
+        ):
+            BaseCombatTask.switch_next_char(task, current)
+
+        current.click_with_interval.assert_not_called()
+        task._switch_to_char.assert_called_once()
+        self.assertEqual(task._switch_to_char.call_args.kwargs["current_char"], current)
+        self.assertEqual(task._switch_to_char.call_args.kwargs["has_intro"], False)
 
     def _load_task(self):
         task = object.__new__(BaseCombatTask)
@@ -343,6 +430,29 @@ class TestTeamPresetGuard(unittest.TestCase):
             loaded = BaseCombatTask.load_chars(task)
 
         self.assertFalse(loaded)
+        task._do_load_char.assert_not_called()
+        task.combat_planner.reset.assert_not_called()
+
+    def test_bound_auto_abyss_team_never_rebuilds_from_three_visible_slots(self):
+        task = self._load_task()
+        preserved_chars = [Mock(), Mock(), Mock(), Mock()]
+        task.chars = preserved_chars
+        task._team_binding = self._visible_match("team_a")
+        task.in_team = Mock(return_value=(True, 0, 3))
+        manager = Mock()
+        manager.get_fixed_team.return_value = {
+            "enabled": True,
+            "selection_mode": "auto",
+            "slots": [],
+        }
+        manager.get_armed_team_preset.return_value = None
+
+        with patch("src.combat.BaseCombatTask.CustomCharManager", return_value=manager):
+            loaded = BaseCombatTask.load_chars(task)
+
+        self.assertFalse(loaded)
+        self.assertEqual(task.chars, preserved_chars)
+        task.clear_element_reactions.assert_not_called()
         task._do_load_char.assert_not_called()
         task.combat_planner.reset.assert_not_called()
 

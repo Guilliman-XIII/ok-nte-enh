@@ -29,9 +29,9 @@ class TestAbyssLogAnalyzer(unittest.TestCase):
         traces = parse_abyss_traces(
             [
                 "2026-07-16 10:00:00,000 INFO planner:strict route locked: "
-                "Chiz Yingxu abyss cycle / Jiuyuan reaction",
+                "Chiz Yingxu abyss cycle / Iloy reaction",
                 "2026-07-16 10:00:01,000 INFO planner:strict route completed entry reaction "
-                "Chiz -> Jiuyuan: Chiz Yingxu abyss cycle / Creation",
+                "Chiz -> Iloy: Chiz Yingxu abyss cycle / Creation",
                 "2026-07-16 10:00:02,000 INFO planner:strict route completed entry reaction "
                 "Zero -> Yi: Chiz Yingxu abyss cycle / Delay",
                 "2026-07-16 10:00:03,000 INFO planner:strict route fulfilled: "
@@ -43,18 +43,18 @@ class TestAbyssLogAnalyzer(unittest.TestCase):
 
         self.assertEqual(len(traces), 2)
         self.assertEqual(traces[0].status, "fulfilled")
-        self.assertEqual(traces[0].reaction_sequence(), ["Chiz->Jiuyuan", "Zero->Yi"])
+        self.assertEqual(traces[0].reaction_sequence(), ["Chiz->Iloy", "Zero->Yi"])
         self.assertEqual(traces[0].diagnosis(), [])
         self.assertEqual(traces[1].route, "Chiz Yingxu abyss cycle")
         self.assertIn("route status is pending", traces[1].diagnosis())
-        self.assertIn("missing reaction Chiz->Jiuyuan", traces[1].diagnosis())
+        self.assertIn("missing reaction Chiz->Iloy", traces[1].diagnosis())
 
     def test_reports_zero_field_wait_and_repeated_unavailable_actions(self):
         lines = [
             "2026-07-16 10:00:00,000 INFO planner:strict route locked: "
             "Chiz Yingxu abyss opener / Zero setup",
             "2026-07-16 10:00:00,100 INFO planner:strict route completed entry reaction "
-            "Chiz -> Jiuyuan: Chiz Yingxu abyss opener / Creation",
+            "Chiz -> Iloy: Chiz Yingxu abyss opener / Creation",
             "2026-07-16 10:00:00,200 INFO planner:strict route completed entry reaction "
             "Zero -> Yi: Chiz Yingxu abyss opener / Delay",
         ]

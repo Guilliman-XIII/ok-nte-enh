@@ -1,0 +1,47 @@
+{
+    "schema_version": 6,
+    "combos": {},
+    "characters": {
+        "char_611b54d8769a4019ba9e6103e45f18b5": {
+            "name": "char_0",
+            "combo_id": "char_zero",
+            "feature_ids": []
+        },
+        "char_96784790c65e407f890888bc75f017bb": {
+            "name": "char_1",
+            "combo_id": "char_zero",
+            "feature_ids": []
+        },
+        "char_2dc1dfbc75fa45a589a875ebea28537c": {
+            "name": "char_2",
+            "combo_id": "char_zero",
+            "feature_ids": []
+        }
+    },
+    "features": {},
+    "fixed_team": {
+        "enabled": false,
+        "selection_mode": "manual",
+        "active_preset_id": "",
+        "armed_for_next_battle": "",
+        "slots": [
+            {
+                "char_id": "",
+                "combo_id": ""
+            },
+            {
+                "char_id": "",
+                "combo_id": ""
+            },
+            {
+                "char_id": "",
+                "combo_id": ""
+            },
+            {
+                "char_id": "",
+                "combo_id": ""
+            }
+        ],
+        "presets": {}
+    }
+}

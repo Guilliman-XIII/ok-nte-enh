@@ -1,6 +1,7 @@
 """深渊固定队伍的真实 CombatPlanner 协作测试。"""
 
 import unittest
+from unittest.mock import Mock
 
 from src.char.Baicang import Baicang
 from src.char.BaseChar import Element
@@ -11,24 +12,27 @@ from src.char.Daphneel import SKILL_REUSE_GUARD as DAPHNEEL_SKILL_REUSE_GUARD
 from src.char.Daphneel import Daphneel
 from src.char.Hania import SKILL_REUSE_GUARD as HANIA_SKILL_REUSE_GUARD
 from src.char.Hania import Hania
-from src.char.Jiuyuan import Jiuyuan
+from src.char.Iloy import Iloy
+from src.char.Mint import Mint
 from src.char.Sakiri import Sakiri
+from src.char.Shinku import Shinku
 from src.char.Yi import Yi
 from src.char.Zero import Zero
 from src.combat.planner import ActionSlot, CombatPlanner, FieldPreference
-from src.combat.team_strategies import should_use_default_arc
+from src.combat.team_strategies import is_999night_team, should_use_default_arc
 
 
 class FakeTask:
     def __init__(self):
         self.chars = []
         self.cycle_full = False
+        self.elapsed = 999
 
     def find_element_reaction_target(self, source_char):
         return None
 
     def time_elapsed_accounting_for_freeze(self, start, intro_motion_freeze=False):
-        return 999
+        return self.elapsed
 
     def is_cycle_full(self):
         return self.cycle_full
@@ -45,6 +49,7 @@ def make_team_char(task, char_cls, index, trace):
     char._test_skill_ready = True
     char._test_ultimate_ready = True
     char._last_skill_kwargs = {}
+    char._sleep_calls = []
 
     def skill_available(*args, **kwargs):
         return char._test_skill_ready
@@ -71,12 +76,18 @@ def make_team_char(task, char_cls, index, trace):
     char.ultimate_available = ultimate_available
     char.click_skill = click_skill
     char.click_ultimate = click_ultimate
-    char.sleep = lambda *args, **kwargs: None
+    char.sleep = lambda duration, *args, **kwargs: char._sleep_calls.append(duration)
     char.check_combat = lambda: None
-    if isinstance(char, (Baicang, Daphneel)):
+    if isinstance(char, (Baicang, Daphneel, Shinku)):
         char._perform_burst = lambda *args, **kwargs: trace.append((char.name, "BURST"))
     if isinstance(char, Chiz):
         char.perform_in_ult = lambda *args, **kwargs: trace.append((char.name, "BURST")) or True
+    if isinstance(char, Iloy):
+        def heavy_attack_mock(duration):
+            trace.append((char.name, "HEAVY"))
+            char._fake_time = getattr(char, "_fake_time", 0.0) + duration
+
+        char.heavy_attack = heavy_attack_mock
     return char
 
 
@@ -270,13 +281,13 @@ class TestChizAbyssTeam(unittest.TestCase):
         self.task = FakeTask()
         self.chiz = make_team_char(self.task, Chiz, 0, self.trace)
         self.zero = make_team_char(self.task, Zero, 1, self.trace)
-        self.jiuyuan = make_team_char(self.task, Jiuyuan, 2, self.trace)
+        self.iloy = make_team_char(self.task, Iloy, 2, self.trace)
         self.yi = make_team_char(self.task, Yi, 3, self.trace)
-        self.jiuyuan.element = Element.GREEN
+        self.iloy.element = Element.GREEN
         self.yi.element = Element.YELLOW
         self.zero.element = Element.WHITE
         self.chiz.element = Element.WHITE
-        self.task.chars = [self.chiz, self.zero, self.jiuyuan, self.yi]
+        self.task.chars = [self.chiz, self.zero, self.iloy, self.yi]
         self.planner = CombatPlanner(self.task)
         self.planner.reset(self.task.chars)
 
@@ -314,27 +325,50 @@ class TestChizAbyssTeam(unittest.TestCase):
         self.assertEqual(char_dict["char_yi"]["element"], Element.YELLOW)
         self.assertEqual(self.yi.describe_role().max_field_time, 0)
 
+    def test_yi_unavailable_setup_actions_are_not_executable(self):
+        self.yi._test_skill_ready = False
+        self.yi._test_ultimate_ready = False
+        context = self.planner.context_for(self.yi)
+        actions = self.yi.combat_plan(context).actions
+
+        self.assertTrue(actions)
+        self.assertTrue(all(not action.is_allowed(context) for action in actions))
+
+    def test_zero_is_setup_only_in_chiz_team(self):
+        profile = self.zero.describe_role()
+
+        self.assertEqual(profile.field_preference, FieldPreference.SETUP_ONLY)
+        self.assertEqual(profile.max_field_time, 0)
+
     def test_yi_is_exposed_in_character_center_builtin_combos(self):
         combo_ids = {combo_id for _, combo_id in CustomCharManager.iter_builtin_combo_items()}
 
         self.assertIn("char_yi", combo_ids)
 
-    def test_complete_team_starts_with_jiuyuan(self):
+    def test_complete_team_starts_with_iloy(self):
         decision = self.planner.decide_combat_start_char(self.chiz)
 
-        self.assertIs(decision.target, self.jiuyuan)
+        self.assertIs(decision.target, self.iloy)
 
-    def test_jiuyuan_waits_for_grouping_to_settle(self):
-        self._perform_and_switch(self.jiuyuan)
+    def test_iloy_skill_uses_short_timeout(self):
+        self._perform_and_switch(self.iloy)
 
-        self.assertEqual(Jiuyuan.SKILL_SETTLE_DURATION, 1.2)
+        self.assertEqual(Iloy.SKILL_REUSE_GUARD, 8.0)
+        self.assertEqual(self.iloy._last_skill_kwargs["time_out"], 2.0)
+        self.assertIn(Iloy.SKILL_SETTLE_DURATION, self.iloy._sleep_calls)
+
+    def test_yi_skill_keeps_a_short_settle_window(self):
+        plan = self.yi.combat_plan(Mock())
+        skill = next(action for action in plan.actions if action.slot is ActionSlot.SKILL)
+
+        self.assertTrue(skill.run(Mock()))
         self.assertEqual(
-            self.jiuyuan._last_skill_kwargs["post_sleep"],
-            Jiuyuan.SKILL_SETTLE_DURATION,
+            self.yi._last_skill_kwargs["post_sleep"],
+            Yi.SKILL_SETTLE_DURATION,
         )
 
-    def test_other_jiuyuan_team_keeps_default_start_priority(self):
-        self.task.chars = [self.jiuyuan, self.zero]
+    def test_other_iloy_team_keeps_default_start_priority(self):
+        self.task.chars = [self.iloy, self.zero]
         planner = CombatPlanner(self.task)
         planner.reset(self.task.chars)
 
@@ -345,13 +379,13 @@ class TestChizAbyssTeam(unittest.TestCase):
     def test_opener_deadline_unlocks_route(self):
         self.chiz.ABYSS_ROUTE_TIMEOUT = 0
 
-        self.planner.context_for(self.jiuyuan)
-        self.planner.context_for(self.jiuyuan)
+        self.planner.context_for(self.iloy)
+        self.planner.context_for(self.iloy)
 
         self.assertIsNone(self.planner.state.locked_route)
 
     def test_opener_sends_chiz_in_before_waiting_for_second_zero_skill(self):
-        current = self._perform_and_switch(self.jiuyuan)
+        current = self._perform_and_switch(self.iloy)
         self.assertIs(current, self.zero)
 
         current = self._perform_and_switch(current)
@@ -361,7 +395,7 @@ class TestChizAbyssTeam(unittest.TestCase):
         self.assertEqual(
             self.trace,
             [
-                ("Jiuyuan", "E"),
+                ("Iloy", "E"),
                 ("Zero", "Q"),
                 ("Zero", "E"),
                 ("Chiz", "Q"),
@@ -373,14 +407,14 @@ class TestChizAbyssTeam(unittest.TestCase):
     def test_optional_support_ultimates_do_not_block_opener(self):
         self.zero._test_ultimate_ready = False
 
-        current = self._perform_and_switch(self.jiuyuan)
+        current = self._perform_and_switch(self.iloy)
         current = self._perform_and_switch(current)
 
         self.assertIs(current, self.chiz)
         self.assertNotIn(("Zero", "Q"), self.trace)
 
     def test_completed_burst_publishes_and_executes_next_yingxu_cycle(self):
-        current = self._perform_and_switch(self.jiuyuan)
+        current = self._perform_and_switch(self.iloy)
         current = self._perform_and_switch(current)
         self.assertIs(current, self.chiz)
 
@@ -388,7 +422,7 @@ class TestChizAbyssTeam(unittest.TestCase):
         self.assertEqual(self.planner.state.locked_route.reason, "Chiz Yingxu abyss cycle")
 
         current = self._switch_only(current)
-        self.assertIs(current, self.jiuyuan)
+        self.assertIs(current, self.iloy)
 
         current = self._perform_and_switch(current)
         self.assertIs(current, self.zero)
@@ -400,9 +434,9 @@ class TestChizAbyssTeam(unittest.TestCase):
         self.yi._test_ultimate_ready = True
         self.yi._test_skill_ready = True
         current = self._perform_and_switch(current)
-        self.assertIs(current, self.jiuyuan)
+        self.assertIs(current, self.iloy)
 
-        self.jiuyuan._test_skill_ready = True
+        self.iloy._test_skill_ready = True
         current = self._perform_and_switch(current)
         self.assertIs(current, self.chiz)
 
@@ -413,7 +447,7 @@ class TestChizAbyssTeam(unittest.TestCase):
         self.assertEqual(self.planner.state.locked_route.reason, "Chiz Yingxu abyss cycle")
 
     def test_chiz_can_use_skill_while_waiting_for_yingxu_entry_reaction(self):
-        current = self._perform_and_switch(self.jiuyuan)
+        current = self._perform_and_switch(self.iloy)
         current = self._perform_and_switch(current)
         self.assertIs(current, self.chiz)
 
@@ -515,6 +549,96 @@ class TestChizBurstSafety(unittest.TestCase):
 
 
 class TestAbyssInputPolicies(unittest.TestCase):
+    def test_both_abyss_main_dps_hold_when_support_has_no_executable_e_or_q(self):
+        cases = (
+            (Baicang, (Baicang, Daphneel, Sakiri, Hania)),
+            (Chiz, (Chiz, Zero, Iloy, Yi)),
+        )
+        for main_cls, team_classes in cases:
+            with self.subTest(main=main_cls.__name__):
+                task = FakeTask()
+                trace = []
+                team = [
+                    make_team_char(task, char_cls, index, trace)
+                    for index, char_cls in enumerate(team_classes)
+                ]
+                task.chars = team
+                planner = CombatPlanner(task)
+                planner.reset(team)
+                planner.state.locked_route = None
+                planner.state.active_requests.clear()
+
+                main = next(char for char in team if isinstance(char, main_cls))
+                main.is_current_char = True
+                main.last_perform = 1.0
+                for char in team:
+                    if char is not main:
+                        char._test_skill_ready = False
+                        char._test_ultimate_ready = False
+
+                decision = planner.decide_switch(main)
+
+                self.assertIs(decision.target, main)
+                self.assertIn("main DPS", decision.reason)
+
+    def test_abyss_element_reaction_waits_for_main_window_and_real_e_or_q(self):
+        task = FakeTask()
+        trace = []
+        team = [
+            make_team_char(task, char_cls, index, trace)
+            for index, char_cls in enumerate((Chiz, Zero, Iloy, Yi))
+        ]
+        task.chars = team
+        planner = CombatPlanner(task)
+        planner.reset(team)
+        planner.state.locked_route = None
+        planner.state.active_requests.clear()
+        main = team[0]
+        target = team[1]
+        main.is_current_char = True
+        main.last_perform = 1.0
+        task.cycle_full = True
+        task.elapsed = 1.0
+        task.find_element_reaction_target = lambda _source: target
+        target._test_skill_ready = False
+        target._test_ultimate_ready = False
+
+        decision = planner.decide_switch(main)
+
+        self.assertIs(decision.target, main)
+
+    def test_main_dps_plain_support_switch_waits_for_minimum_field_time(self):
+        cases = (
+            (Baicang, (Baicang, Daphneel, Sakiri, Hania), 1),
+            (Chiz, (Chiz, Zero, Iloy, Yi), 1),
+        )
+        for main_cls, team_classes, target_index in cases:
+            with self.subTest(main=main_cls.__name__):
+                task = FakeTask()
+                trace = []
+                team = [
+                    make_team_char(task, char_cls, index, trace)
+                    for index, char_cls in enumerate(team_classes)
+                ]
+                task.chars = team
+                main = team[0]
+                target = team[target_index]
+                main.is_current_char = True
+                main.last_perform = 10.0
+                task.elapsed = 0.0
+                context = Mock(chars=team)
+                context.has_strict_route.return_value = False
+
+                guard = target.switch_in_guard(context, main, has_intro=False)
+
+                self.assertTrue(guard.should_delay())
+                task.elapsed = main.MIN_FIELD_TIME
+                self.assertFalse(guard.should_delay())
+
+                task.elapsed = 0.0
+                intro_guard = target.switch_in_guard(context, main, has_intro=True)
+                self.assertFalse(intro_guard.should_delay())
+
     def test_target_teams_only_send_arc_for_baicang_and_daphneel(self):
         task = FakeTask()
         trace = []
@@ -527,7 +651,7 @@ class TestAbyssInputPolicies(unittest.TestCase):
         chiz_team = [
             make_team_char(task, Chiz, 0, trace),
             make_team_char(task, Zero, 1, trace),
-            make_team_char(task, Jiuyuan, 2, trace),
+            make_team_char(task, Iloy, 2, trace),
             make_team_char(task, Yi, 3, trace),
         ]
 
@@ -536,6 +660,7 @@ class TestAbyssInputPolicies(unittest.TestCase):
         self.assertFalse(should_use_default_arc(baicang_team[2], baicang_team))
         self.assertFalse(should_use_default_arc(baicang_team[3], baicang_team))
         self.assertTrue(all(not should_use_default_arc(char, chiz_team) for char in chiz_team))
+        self.assertEqual(Baicang.ARC_CHECK_INTERVAL, 20.0)
 
     def test_failed_support_skill_is_suppressed_for_four_seconds(self):
         for char_cls in (Hania, Daphneel):
@@ -579,6 +704,149 @@ class TestAbyssInputPolicies(unittest.TestCase):
                 char._skill_ready_after = 99.0
                 char.on_combat_end([])
                 self.assertEqual(char._skill_ready_after, 0.0)
+
+
+class Test999NightTeam(unittest.TestCase):
+    """999-night idle team: Iloy + Mint + Zero + Shinku."""
+
+    def setUp(self):
+        self.trace = []
+        self.task = FakeTask()
+        self.iloy = make_team_char(self.task, Iloy, 0, self.trace)
+        self.mint = make_team_char(self.task, Mint, 1, self.trace)
+        self.zero = make_team_char(self.task, Zero, 2, self.trace)
+        self.shinku = make_team_char(self.task, Shinku, 3, self.trace)
+        # Override _now for deterministic cooldowns
+        self._fake_time = [0.0]
+        for c in (self.iloy, self.mint, self.zero, self.shinku):
+            c._now = lambda ft=self._fake_time: ft[0]
+            c.sleep = lambda sec, *a, **kw: self._fake_time.__setitem__(0, self._fake_time[0] + sec)
+            c.normal_attack = lambda name=c.name, *a, **kw: self.trace.append((name, "A"))
+        self.task.chars = [self.iloy, self.mint, self.zero, self.shinku]
+        self.planner = CombatPlanner(self.task)
+        self.planner.reset(self.task.chars)
+
+    def _perform_and_switch(self, current):
+        current.is_current_char = True
+        self.planner.perform_current_char(current)
+        return self._switch_only(current)
+
+    def _switch_only(self, current):
+        decision = self.planner.decide_switch(current)
+        current.is_current_char = False
+        decision.target.is_current_char = True
+        self.planner.record_switch(decision.target)
+        return decision.target
+
+    def test_team_detection(self):
+        self.assertTrue(is_999night_team(self.task.chars))
+
+    def test_team_detection_rejects_partial(self):
+        self.assertFalse(is_999night_team([self.iloy, self.mint, self.shinku]))
+
+    def test_team_detection_rejects_non_zero_fourth(self):
+        """Fourth slot must be Zero, not another char type."""
+        self.assertFalse(
+            is_999night_team([self.iloy, self.mint, self.shinku, self.mint])
+        )
+
+    def test_iloy_has_high_start_priority(self):
+        decision = self.planner.decide_combat_start_char(self.shinku)
+        self.assertIs(decision.target, self.iloy)
+
+    def test_opener_routes_through_full_team(self):
+        current = self.iloy
+        current = self._perform_and_switch(current)
+        self.assertIs(current, self.mint)
+
+        current = self._perform_and_switch(current)
+        self.assertIs(current, self.zero)
+
+        current = self._perform_and_switch(current)
+        self.assertIs(current, self.shinku)
+
+        self.planner.perform_current_char(current)
+
+        # heavy_attack is skipped during opener: planner switches to Mint
+        # immediately after Iloy Q (route step 2). heavy_attack runs in cycles.
+        self.assertEqual(
+            self.trace,
+            [
+                ("Iloy", "E"),
+                ("Iloy", "Q"),
+                ("Mint", "Q"),
+                ("Mint", "E"),
+                ("Zero", "Q"),
+                ("Zero", "E"),
+                ("Shinku", "E"),
+                ("Shinku", "Q"),
+                ("Shinku", "BURST"),
+            ],
+        )
+
+    def test_shinku_is_strategy_source(self):
+        from src.combat.team_strategies import team_strategy_source
+
+        self.assertIs(team_strategy_source(self.task.chars), self.shinku)
+
+    def test_request_switch_chain_after_opener(self):
+        """After opener, request_switch chain: Shinku -> Iloy -> Mint -> Zero -> Shinku."""
+        # Complete opener
+        current = self.iloy
+        current = self._perform_and_switch(current)
+        current = self._perform_and_switch(current)
+        current = self._perform_and_switch(current)
+        self.planner.perform_current_char(current)
+
+        # Reset skill/ultimate availability for cycle
+        for c in (self.iloy, self.mint, self.zero, self.shinku):
+            c._test_skill_ready = True
+            c._test_ultimate_ready = True
+
+        # Shinku should request Iloy
+        current = self._switch_only(current)
+        self.assertIs(current, self.iloy)
+
+        # Iloy should request Mint
+        current = self._perform_and_switch(current)
+        self.assertIs(current, self.mint)
+
+        # Mint should request Zero
+        current = self._perform_and_switch(current)
+        self.assertIs(current, self.zero)
+
+        # Zero should request Shinku
+        current = self._perform_and_switch(current)
+        self.assertIs(current, self.shinku)
+
+    def test_failed_opener_still_cycles(self):
+        """All skills fail: opener steps are optional, team still cycles."""
+        for c in (self.iloy, self.mint, self.zero, self.shinku):
+            c._test_skill_ready = False
+            c._test_ultimate_ready = False
+
+        current = self.iloy
+        current = self._perform_and_switch(current)
+        self.assertIs(current, self.mint)
+        current = self._perform_and_switch(current)
+        self.assertIs(current, self.zero)
+        current = self._perform_and_switch(current)
+        self.assertIs(current, self.shinku)
+        self.planner.perform_current_char(current)
+
+        # No E/Q/HEAVY/BURST in trace - all skills were unavailable
+        skill_traces = [
+            t for t in self.trace if t[1] in ("E", "Q", "HEAVY", "BURST")
+        ]
+        self.assertEqual(skill_traces, [])
+
+    def test_opener_deadline_unlocks_route(self):
+        self.iloy.ABYSS_OPENER_TIMEOUT = 0
+
+        self.planner.context_for(self.iloy)
+        self.planner.context_for(self.iloy)
+
+        self.assertIsNone(self.planner.state.locked_route)
 
 
 if __name__ == "__main__":
