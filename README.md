@@ -4,32 +4,19 @@
   <img src="icons/icon.png" alt="icon" width="200"><br>
   <h1>ok-nte</h1>
   <p>一款基于图像识别的《异环》自动化工具，支持后台运行。</p>
-  <p>基于 <a href="https://github.com/ok-oldking/ok-script">ok-script</a> 框架开发。</p>
-
-  <p>
-    <img src="https://img.shields.io/badge/platform-Windows-blue" alt="平台">
-    <img src="https://img.shields.io/badge/python-3.12-skyblue" alt="Python版本">
-    <a href="https://github.com/BnanZ0/ok-nte/releases"><img src="https://img.shields.io/github/downloads/BnanZ0/ok-nte/total" alt="总下载量"></a>
-    <a href="https://github.com/BnanZ0/ok-nte/releases"><img src="https://img.shields.io/github/v/release/BnanZ0/ok-nte" alt="最新版本"></a>
-    <a href="https://discord.gg/vVyCatEBgA"><img alt="Discord" src="https://img.shields.io/discord/296598043787132928?color=5865f2&label=%20Discord"></a>
-  </p>
-
-  <p>
-    <strong>💖 喜欢本项目？</strong><br>
-    <a href="https://github.com/BnanZ0/ok-nte">点亮小星星⭐</a> &nbsp;|&nbsp; <a href="./SPONSOR.md">赞助开发者☕</a>
-  </p>
+  <p>基于 <a href="https://github.com/ok-oldking/ok-script">ok-script</a> 框架，以及 <a href="https://github.com/BnanZ0/ok-nte">ok-nte</a> 开发。</p>
 </div>
 
-## 🚀 本增强版新增内容
+## 🚀 本仓库相对上游的改动
 
-> 本仓库基于上游 [**BnanZ0/ok-nte**](https://github.com/BnanZ0/ok-nte)（v1.2.24）的增强分支，聚焦 **自动战斗** 与 **深渊双队** 的稳定性与自动化能力，并在上游基础上新增以下功能：
+> 本仓库基于 [**BnanZ0/ok-nte**](https://github.com/BnanZ0/ok-nte)（v1.2.24），在自动战斗与深渊双队方面做了以下调整，供需要单刷深渊的玩家使用：
 
-- **刷纽扣点（闪避流挂机）**：新增 999 夜任务挂机点，切换角色跑图后进入战斗只自动闪避、不攻击，敌人自行消亡，适合低战力白嫖资源。
+- **刷纽扣点（闪避流挂机）**：新增 999 夜任务挂机点，进入战斗后只自动闪避、不攻击。
 - **新角色 伊洛伊（Iloy）**：加入深渊双队识别与自动出招，支持聚集、治疗、入梦爆发衔接。
-- **深渊双队自动识别增强**：优化队伍判定、战斗会话保持与目标短暂丢失时的策略延续，减少中途重绑队伍导致的节奏断裂。
-- **角色战斗逻辑强化**：同步增强百川、明、真红、零、小吱等多角色连招与协作。
+- **深渊双队自动识别**：优化队伍判定、战斗会话保持与目标短暂丢失时的策略延续。
+- **角色战斗逻辑**：同步调整百川、明、真红、零、小吱等多角色连招与协作。
 
-> 以上为增量增强，上游原有功能与用法保持不变。安装与使用方式请参考下方 [使用指南](#-使用指南与-faq)。
+> 以上仅为增量改动，上游原有功能与用法保持不变。安装与使用方式请参考下方 [使用指南](#-使用指南与-faq)。
 
 ## ⚠️ 免责声明
 

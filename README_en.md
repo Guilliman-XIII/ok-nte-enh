@@ -4,32 +4,19 @@
   <img src="icons/icon.png" alt="icon" width="200"><br>
   <h1>ok-nte</h1>
   <p>An image-recognition-based automation tool for <em>Neverness To Everness</em>, with background operation support.</p>
-  <p>Developed based on the <a href="https://github.com/ok-oldking/ok-script">ok-script</a> framework.</p>
-  
-  <p>
-    <img src="https://img.shields.io/badge/platform-Windows-blue" alt="Platform">
-    <img src="https://img.shields.io/badge/python-3.12-skyblue" alt="Python Version">
-    <a href="https://github.com/BnanZ0/ok-nte/releases"><img src="https://img.shields.io/github/downloads/BnanZ0/ok-nte/total" alt="Total Downloads"></a>
-    <a href="https://github.com/BnanZ0/ok-nte/releases"><img src="https://img.shields.io/github/v/release/BnanZ0/ok-nte" alt="Latest Release"></a>
-    <a href="https://discord.gg/vVyCatEBgA"><img alt="Discord" src="https://img.shields.io/discord/296598043787132928?color=5865f2&label=%20Discord"></a>
-  </p>
-
-  <p>
-    <strong>💖 Like this project?</strong><br>
-    <a href="https://github.com/BnanZ0/ok-nte">Lighten the star⭐</a> &nbsp;|&nbsp; <a href="./SPONSOR.md">Sponsor the developer☕</a>
-  </p>
+  <p>Developed based on the <a href="https://github.com/ok-oldking/ok-script">ok-script</a> framework and <a href="https://github.com/BnanZ0/ok-nte">ok-nte</a>.</p>
 </div>
 
-## 🚀 What's New in This Enhanced Fork
+## 🚀 Changes in This Fork
 
-> This repository is an enhanced branch based on upstream [**BnanZ0/ok-nte**](https://github.com/BnanZ0/ok-nte) (v1.2.24), focused on **auto combat** and **dual-team Abyss** stability and automation, adding the following on top of upstream:
+> This repository is based on [**BnanZ0/ok-nte**](https://github.com/BnanZ0/ok-nte) (v1.2.24), with the following adjustments to auto combat and dual-team Abyss for players who want to solo-farm the Abyss:
 
-- **Button Farm Spot (dodge-only AFK)**: New AFK spot in the 999 Nights task. After switching characters and running into combat, the script only auto-dodges and never attacks, letting enemies die on their own.
+- **Button Farm Spot (dodge-only AFK)**: New AFK spot in the 999 Nights task that only auto-dodges and never attacks.
 - **New Character Iloy**: Added to dual-team Abyss recognition and auto-combat, supporting gather, heal, and dream-state burst linkage.
-- **Enhanced Dual-Team Abyss Recognition**: Improved team detection, combat session preservation, and strategy continuity when targets briefly drop, reducing mid-fight team rebinding stutter.
-- **Strengthened Character Combat Logic**: Enhanced combos and collaboration for Baicang, Mint, Shinku, Zero, Chiz, and more.
+- **Dual-Team Abyss Recognition**: Improved team detection, combat session preservation, and strategy continuity when targets briefly drop.
+- **Character Combat Logic**: Adjusted combos and collaboration for Baicang, Mint, Shinku, Zero, Chiz, and more.
 
-> These are incremental enhancements; all upstream features and usage remain unchanged. See [Usage Guide & FAQ](#--usage-guide--faq) below for installation and usage.
+> These are incremental changes only; all upstream features and usage remain unchanged. See [Usage Guide & FAQ](#--usage-guide--faq) below for installation and usage.
 
 ## ⚠️ Disclaimer
 
