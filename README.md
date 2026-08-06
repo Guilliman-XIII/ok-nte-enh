@@ -5,9 +5,14 @@
   <p>基于图像识别与声音驱动，提供后台挂机、自动战斗、深渊双队等能力。</p>
 </div>
 
-## 项目定位
+## 🎯 项目定位
 
-本项目是一个面向《异环》玩家的自动化辅助工具，在图像识别自动化的基础上，重点强化了**自动战斗**与**深渊双队**相关能力，方便需要单刷深渊、挂机刷经验的玩家使用。
+> [!IMPORTANT]
+> **本项目完全基于 [ok-nte](https://github.com/BnanZ0/ok-nte) 开发，是 ok-nte 自动战斗逻辑的拓展。**
+
+本项目是 [ok-nte](https://github.com/BnanZ0/ok-nte) 的衍生分支，所有角色战斗、自动闪避、深渊双队等核心逻辑均继承自 ok-nte 的战斗体系。本仓库不另起炉灶，只在 ok-nte 基础上新增角色与策略、优化战斗衔接，不改变其原有设计，并持续同步上游改动以保持与 ok-nte 主线一致。
+
+在与 ok-nte 的定位关系上：**ok-nte 是基础，ok-nte-enh 是面向单刷深渊、挂机刷经验的战斗增量拓展。**
 
 ## ✨ 核心特性
 
@@ -127,7 +132,7 @@
 
 ## 🔗 致谢
 
-本项目基于 [ok-script](https://github.com/ok-oldking/ok-script) 框架开发，并参考了社区的开源项目实践。感谢所有开源贡献者的付出。
+本项目**完全基于 [ok-nte](https://github.com/BnanZ0/ok-nte) 开发**，是 ok-nte 自动战斗逻辑的拓展，所有战斗核心逻辑均继承自 ok-nte。同时底层依赖 [ok-script](https://github.com/ok-oldking/ok-script) 框架。感谢 ok-nte 与 ok-script 的开发者和社区开源贡献者的付出。
 
 ## 📄 License
 
