@@ -75,6 +75,10 @@ class BaseChar:
         self.element = Element.DEFAULT
         self.planner_handles_arc = False
         self.is_dead = False
+        # actual switch-in timestamp; only updated on switch_in / combat init binding.
+        # Used by MIN_FIELD_TIME / MAX_FIELD_TIME field-window checks.
+        # last_perform is reset every perform() so it must NOT be used here.
+        self.actual_switch_in_time = -1.0
 
     def cycle_start(self):
         self.cycle_start_time = time.time()
@@ -210,7 +214,14 @@ class BaseChar:
         `SwitchInGuard.delay_until_ready(...)`。
         """
 
-        return SwitchInGuard.allow()
+        from src.combat.team_strategies import abyss_main_dps_switch_guard
+
+        return abyss_main_dps_switch_guard(
+            context,
+            from_char=from_char,
+            target_char=self,
+            has_intro=has_intro,
+        )
 
     def combat_plan(self, context: CombatContext) -> CombatPlan:
         """声明角色交给 planner 的完整战斗计划。
@@ -345,6 +356,7 @@ class BaseChar:
         tags: set[Planner.ActionTag] | None = None,
         reason: str = "skill action available",
         down_time: float = 0.01,
+        post_sleep: float = 0.0,
         can_execute=None,
     ):
         """创建一个 E 动作声明。
@@ -354,6 +366,7 @@ class BaseChar:
             tags: 动作标签。默认 `{Planner.ActionTag.SKILL_ACTION}`。
             reason: 切人/执行日志理由。
             down_time: 传给 `click_skill(down_time=...)` 的按下时间。
+            post_sleep: 技能按下后保留的动作结算时间。
             can_execute: 额外硬限制；slot reservation 由 planner 统一检查。
 
         Behavior:
@@ -369,7 +382,10 @@ class BaseChar:
         return self.planner_action(
             tags=action_tags,
             slot=Planner.ActionSlot.SKILL,
-            execute=lambda context: self.click_skill(down_time=down_time),
+            execute=lambda context: self.click_skill(
+                down_time=down_time,
+                post_sleep=post_sleep,
+            ),
             name=name,
             reason=reason,
             can_execute=can_execute,
@@ -446,6 +462,18 @@ class BaseChar:
         """
         return percent == 0 or not self.has_cd(box_name)
 
+    def switch_in(self, has_intro: bool = False):
+        """角色被切入上场时的状态更新。
+
+        actual_switch_in_time only updates here and on combat-init binding;
+        perform / normal-attack / skill rounds never reset it. This is the
+        real basis for MIN_FIELD_TIME / MAX_FIELD_TIME windows; using
+        last_perform (reset every perform) starves supports forever.
+        """
+        self.actual_switch_in_time = time.time()
+        self.is_current_char = True
+        self.has_intro = has_intro
+
     def switch_out(self):
         """角色被切换下场时的状态更新。"""
         self.last_switch_time = time.time()
@@ -487,12 +515,30 @@ class BaseChar:
         self.task.switch_other_char(self)
 
     def sleep(self, sec, sleep_check=True):
+        self._touch_combat_session_alive()
         if not sleep_check:
             with self.task.skip_sleep_checks() as skip:
                 skip.all = True
                 self.task.sleep(sec)
         else:
             self.task.sleep(sec)
+
+    def _touch_combat_session_alive(self):
+        """战斗中的任何 sleep 都刷新会话保活时间，避免长大招期间误判超时。
+
+        Only refreshes when task._in_combat is True; non-combat sleeps (running
+        around the map) do not extend the keepalive window. Writes
+        session.last_active_at directly instead of calling task.touch_combat_session
+        to avoid resetting pause_logged (which would mask short-wave pause semantics).
+        """
+        task = getattr(self, "task", None)
+        if task is None:
+            return
+        session = getattr(task, "_combat_session", None)
+        if session is None:
+            return
+        if getattr(task, "_in_combat", False):
+            session.last_active_at = time.monotonic()
 
     def alert_skill_failed(self):
         self.task.log_error(

@@ -28,12 +28,14 @@ class Baicang(BaseChar):
 
     MAX_FIELD_TIME = 0
     ULT_FIELD_DURATION = 12.0
+    MIN_FIELD_TIME = 4.0
     FALLBACK_DODGE_DURATION = 1.5
     NORMAL_ATTACK_INTERVAL = 0.18
     ATTACK_SLICE_DURATION = 0.36
     DODGE_CLICK_INTERVAL = 0.12
     DODGE_SLICE_DURATION = 0.12
     SKILL_CHECK_INTERVAL = 0.8
+    SKILL_CHECK_INTERVAL_BURST = 0.4  # faster E check inside burst to avoid missing the window
     SECOND_SKILL_MODE = "execute"  # disabled | observe | execute
     SKILL_READY_STREAK_THRESHOLD = 2
     SKILL_SHORT_TIMEOUT = 2.0
@@ -53,7 +55,7 @@ class Baicang(BaseChar):
     # Still UNVERIFIED -- if it over-holds or still mis-fires, tune live (try 0.8 / 1.0 / 1.2).
     HEAVY_HOLD_DURATION = 0.9
     WALK_RESET_DURATION = 0.4  # forward walk to reset the normal-attack combo
-    ARC_CHECK_INTERVAL = 2.0  # seconds between R attempts during burst
+    ARC_CHECK_INTERVAL = 20.0  # keep R aligned with the weapon skill cooldown
     POST_SKILL_DODGE_DURATION = 1.0
     ABYSS_OPENER_TIMEOUT = 24.0
 
@@ -135,7 +137,6 @@ class Baicang(BaseChar):
         track_second_skill = self.SECOND_SKILL_MODE != "disabled"
         ready_streak = 0
         last_check = start
-        last_arc = start
 
         while self._now() < deadline:
             if not self.is_current_char:
@@ -148,13 +149,19 @@ class Baicang(BaseChar):
             self._heavy_combo()
             self.check_combat()
 
-            if self._now() - last_arc >= self.ARC_CHECK_INTERVAL:
-                last_arc = self._now()
+            # Use the shared global R cooldown (_last_default_arc_time) so burst
+            # and normal state share one R timer. Previously last_arc started from
+            # burst start, so with ULT_FIELD_DURATION=12s < ARC_CHECK_INTERVAL=20s
+            # the burst-branch R never fired. Now a R cast in normal state before
+            # the burst counts toward the cooldown, and a R cast in burst counts
+            # for the next normal-state window.
+            if self._now() - self._last_default_arc_time >= self.ARC_CHECK_INTERVAL:
+                self._last_default_arc_time = self._now()
                 self.send_arc_key(action_name=("baicang_burst_arc", self.index))
 
             if not track_second_skill:
                 continue
-            if self._now() - last_check < self.SKILL_CHECK_INTERVAL:
+            if self._now() - last_check < self.SKILL_CHECK_INTERVAL_BURST:
                 continue
 
             last_check = self._now()
@@ -257,6 +264,13 @@ class Baicang(BaseChar):
             while self._now() < deadline:
                 if not self.is_current_char or self.is_dead:
                     return False
+                # Periodic R during field time, sharing the same global R
+                # cooldown as burst. _last_default_arc_time persists across
+                # fallbacks so the ~20s cadence accumulates over multiple short
+                # fallback windows.
+                if self._now() - self._last_default_arc_time >= self.ARC_CHECK_INTERVAL:
+                    self._last_default_arc_time = self._now()
+                    self.send_arc_key(action_name=("baicang_field_arc", self.index))
                 remaining = deadline - self._now()
                 self._normal_attack_slice(min(self.ATTACK_SLICE_DURATION, remaining))
                 self.sleep(0.01)

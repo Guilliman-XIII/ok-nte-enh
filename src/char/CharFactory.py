@@ -11,6 +11,7 @@ from src.char.Daphneel import Daphneel
 from src.char.Fadia import Fadia
 from src.char.Hania import Hania
 from src.char.Hotori import Hotori
+from src.char.Iloy import Iloy
 from src.char.Iroi import Iroi
 from src.char.Jiuyuan import Jiuyuan
 from src.char.Lacrimosa import Lacrimosa
@@ -44,11 +45,51 @@ char_dict: dict[str, dict[str, Any]] = {
     "char_lacrimosa": {"cls": Lacrimosa, "cn_name": "安魂曲", "element": Element.PURPLE},
     "char_fadia": {"cls": Fadia, "cn_name": "法帝娅", "element": Element.BLUE},
     "char_shinku": {"cls": Shinku, "cn_name": "真红", "element": Element.WHITE},
+    "char_iloy": {"cls": Iloy, "cn_name": "伊洛伊", "element": Element.GREEN},
     "char_yi": {"cls": Yi, "cn_name": "翳", "element": Element.YELLOW},
     "char_iroi": {"cls": Iroi, "cn_name": "伊洛伊", "element": Element.GREEN},
 }
 
 char_names = char_dict.keys()
+
+
+class CharacterBindingError(ValueError):
+    """Raised when a strict team slot cannot be mapped to a combat class."""
+
+
+_BUILTIN_COMBO_ALIASES = {
+    "伊洛伊": "char_iloy",
+    "Iloy": "char_iloy",
+    "Iroi": "char_iroi",
+}
+
+
+def resolve_builtin_combo_id(
+    char_id: str,
+    char_info: dict | None,
+    combo_id_override: str | None = None,
+) -> str:
+    """Resolve a saved character slot to its built-in combat binding.
+
+    Older saved profiles may have a blank ``combo_id`` even though the
+    character name is an unambiguous built-in character.  Only those explicit
+    aliases are inferred; an unknown blank binding remains unresolved so a
+    strict Abyss preset can fail closed instead of silently becoming
+    ``BaseChar``.
+    """
+
+    combo_id = combo_id_override
+    if combo_id is None and char_info:
+        combo_id = char_info.get("combo_id", "")
+    combo_id = "" if combo_id is None else str(combo_id).strip()
+    if combo_id:
+        return combo_id
+
+    if char_id in {"char_iloy", "char_iroi"}:
+        return char_id
+
+    char_name = "" if not char_info else str(char_info.get("char_name", "")).strip()
+    return _BUILTIN_COMBO_ALIASES.get(char_name, "")
 
 
 def _build_char_instance(
@@ -58,18 +99,20 @@ def _build_char_instance(
     sim,
     manager: "CustomCharManager",
     combo_id_override: str | None = None,
+    strict: bool = False,
 ):
     from src.char.custom.CustomChar import CustomChar
 
     char_info = manager.get_character_info_by_id(match_id)
     match_name = char_info["char_name"] if char_info else "unknown"
 
-    if combo_id_override is None:
-        combo_id = char_info["combo_id"] if char_info else ""
-    else:
-        combo_id = combo_id_override
+    combo_id = resolve_builtin_combo_id(match_id, char_info, combo_id_override)
 
     if not combo_id:
+        if strict:
+            raise CharacterBindingError(
+                f"strict character binding missing for {match_name} ({match_id})"
+            )
         char_id = char_info["char_id"] if char_info else "unknown"
         instance = BaseChar(task, index, char_id=char_id, confidence=sim)
         instance.char_name = match_name
@@ -79,10 +122,15 @@ def _build_char_instance(
         cls = char_dict[combo_id].get("cls", BaseChar)
         instance: "BaseChar" = cls(task, index, char_id=match_id, confidence=sim)
         instance.char_name = match_name
+        instance.combo_id = combo_id
         instance.combo_name = manager.get_combo_name(combo_id, with_builtin_prefix=True)
         instance.builtin = True
         instance.element = char_dict[combo_id].get("element", Element.DEFAULT)
     else:
+        if strict:
+            raise CharacterBindingError(
+                f"strict character binding is not a built-in combat class: {combo_id}"
+            )
         instance = CustomChar(task, index, char_id=match_id, combo_id=combo_id, confidence=sim)
         instance.char_name = match_name
 
@@ -90,15 +138,29 @@ def _build_char_instance(
 
 
 def get_char_by_id(
-    task: "BaseCombatTask", index: int, char_id: str, confidence=1, combo_id: str | None = None
+    task: "BaseCombatTask",
+    index: int,
+    char_id: str,
+    confidence=1,
+    combo_id: str | None = None,
+    *,
+    strict: bool = False,
 ):
     from src.char.custom.CustomCharManager import CustomCharManager
 
     manager = CustomCharManager()
     if not char_id:
+        if strict:
+            raise CharacterBindingError("strict character binding has no character id")
         return BaseChar(task, index, char_id="unknown", confidence=confidence)
     return _build_char_instance(
-        task, index, char_id, confidence, manager, combo_id_override=combo_id
+        task,
+        index,
+        char_id,
+        confidence,
+        manager,
+        combo_id_override=combo_id,
+        strict=strict,
     )
 
 

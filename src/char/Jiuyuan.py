@@ -6,12 +6,10 @@ class Jiuyuan(BaseChar):
     SKILL_SETTLE_DURATION = 1.2
 
     def describe_role(self):
-        from src.combat.team_strategies import is_chiz_abyss_team
-
         return RoleProfile(
             role=Planner.Role.SUB_DPS,
             field_preference=Planner.FieldPreference.SUB_DPS,
-            combat_start_priority=100 if is_chiz_abyss_team(self.task.chars) else 0,
+            combat_start_priority=0,
             max_field_time=1.0,
         )
 

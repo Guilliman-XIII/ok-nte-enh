@@ -8,6 +8,7 @@ from src.combat.planner import CombatContext, Planner, RoleProfile
 class Chiz(BaseChar):
     ABYSS_ROUTE_TIMEOUT = 35.0
     ULT_FIELD_DURATION = 8.0
+    MIN_FIELD_TIME = 4.0
     SKILL_SHORT_TIMEOUT = 2.0
     SKILL_CHAIN_MAX_USES = 3
     # During the 8s ultimate E's CD is fast and charges regenerate, so allow more casts than
