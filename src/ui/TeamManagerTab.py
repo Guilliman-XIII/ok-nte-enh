@@ -392,7 +392,31 @@ class TeamManagerTab(CustomTab):
     ABYSS_PRESET_OPTIONS = (
         ("team_baicang_speed", "白藏竞速队"),
         ("team_chiz", "小吱盈蓄队"),
+        ("team_999night", "999夜挂机队"),
     )
+
+    # Built-in combo_id list for each preset. Used to auto-fill slots
+    # when the user selects a preset that has not been saved yet.
+    PRESET_DEFAULT_COMBOS = {
+        "team_baicang_speed": [
+            "char_baicang",
+            "char_daphneel",
+            "char_hania",
+            "char_sakiri",
+        ],
+        "team_chiz": [
+            "char_chiz",
+            "char_zero",
+            "char_iloy",
+            "char_yi",
+        ],
+        "team_999night": [
+            "char_iloy",
+            "char_mint",
+            "char_zero",
+            "char_shinku",
+        ],
+    }
 
     def __init__(self, manager: CustomCharManager = None, owner=None):
         super().__init__()
@@ -759,10 +783,42 @@ class TeamManagerTab(CustomTab):
         preset_id, _ = self._selected_team_preset()
         preset = self.manager.get_team_preset(preset_id)
         slots = preset.get("slots", []) if preset else []
+        # If preset has not been saved yet, auto-fill from built-in combo IDs
+        # by matching against characters already in the user's database.
+        if not slots or not all(s.get("char_id") for s in slots):
+            default_combos = self.PRESET_DEFAULT_COMBOS.get(preset_id)
+            if default_combos:
+                slots = self._auto_fill_slots_by_combos(default_combos)
         for index, card in enumerate(self.fixed_team_slots):
             slot = slots[index] if index < len(slots) else {}
             card.set_data(slot.get("char_id", ""), slot.get("combo_id", ""))
         self.update_fixed_team_status()
+
+    def _auto_fill_slots_by_combos(self, combo_ids: list[str]) -> list[dict]:
+        """Match built-in combo_ids to characters in the user's database.
+
+        If a character exists with the given combo_id, use its char_id.
+        If not, auto-create a placeholder character with the builtin cn_name
+        so the user can scan and associate features later.  The combo_id is
+        always set so the UI shows the expected combo even before scanning.
+        """
+        all_chars = self.manager.get_all_characters()
+        # Build a map: combo_id -> char_id (first match)
+        combo_to_char = {}
+        for char_id, char_data in all_chars.items():
+            cid = char_data.get("combo_id", "")
+            if cid and cid not in combo_to_char:
+                combo_to_char[cid] = char_id
+        slots = []
+        for combo_id in combo_ids:
+            char_id = combo_to_char.get(combo_id, "")
+            if not char_id and self.manager.is_builtin_combo(combo_id):
+                # Auto-create a placeholder so the slot is not blank.
+                # The user can scan the character later to add features.
+                cn_name = self.manager.get_builtin_combo_name(combo_id)
+                char_id = self.manager.create_character(cn_name, combo_id)
+            slots.append({"char_id": char_id, "combo_id": combo_id})
+        return slots
 
     def on_save_team_preset(self):
         preset_id, preset_name = self._selected_team_preset()
