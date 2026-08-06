@@ -299,6 +299,78 @@ class CombatPlanner:
 
         self.state.set_pending_entry_expectation(target_char, expected_entry)
 
+    def _is_abyss_team(self) -> bool:
+        from src.combat.team_strategies import is_abyss_team
+
+        return is_abyss_team(self.state.chars)
+
+    def _abyss_main_dps(self):
+        from src.combat.team_strategies import abyss_main_dps
+
+        return abyss_main_dps(self.state.chars)
+
+    def _abyss_main_window_ready(self, current_char: "BaseChar") -> bool:
+        # Use actual_switch_in_time (only updated on switch_in / combat-init
+        # binding) instead of last_perform (reset every perform). Otherwise a
+        # main DPS whose fallback cycle is shorter than MIN_FIELD_TIME would
+        # reset the window every round and starve supports forever.
+        switch_in_time = getattr(current_char, "actual_switch_in_time", -1.0)
+        if switch_in_time <= 0:
+            # Fall back to last_perform for backward compat before first switch_in.
+            switch_in_time = current_char.last_perform
+        if switch_in_time <= 0:
+            return True
+        minimum = getattr(current_char, "MIN_FIELD_TIME", 0.0)
+        return current_char.time_elapsed_accounting_for_freeze(
+            switch_in_time
+        ) >= minimum
+
+    def _abyss_real_switch_action(
+        self, char: "BaseChar", context: CombatContext
+    ) -> ActionIntent | None:
+        """Return an executable E/Q that can justify a support entry."""
+
+        action = self._best_scoring_action_for(char, context)
+        if action is None or action.slot not in {
+            ActionSlot.SKILL,
+            ActionSlot.ULTIMATE,
+        }:
+            return None
+        return action
+
+    def _abyss_switch_candidate_allowed(
+        self, char: "BaseChar", context: CombatContext
+    ) -> bool:
+        main_dps = self._abyss_main_dps()
+        if main_dps is None or char is main_dps:
+            return True
+        return self._abyss_real_switch_action(char, context) is not None
+
+    def _abyss_keep_main_dps(
+        self,
+        current_char: "BaseChar",
+        decision: SwitchDecision,
+    ) -> SwitchDecision | None:
+        if current_char is not self._abyss_main_dps():
+            return None
+        if not self._abyss_main_window_ready(current_char):
+            return SwitchDecision(
+                target=current_char,
+                reason="main DPS field protection",
+                priority=decision.priority,
+                has_intro=decision.has_intro,
+                expected_entry=None,
+            )
+        if decision.target is current_char or decision.priority <= 0:
+            return SwitchDecision(
+                target=current_char,
+                reason="main DPS holds without explicit support E/Q",
+                priority=decision.priority,
+                has_intro=decision.has_intro,
+                expected_entry=None,
+            )
+        return None
+
     def perform_current_char(self, current_char: "BaseChar") -> ActionResult | None:
         """规划并执行当前在场角色的动作。
 
@@ -378,7 +450,7 @@ class CombatPlanner:
         if (
             not session.successful_action
             and not session.yielded_before_action
-            and self._can_use_field_time_fallback()
+            and self._can_use_field_time_fallback(current_char)
         ):
             context = self.context_for(current_char)
             fallback_result = self._perform_field_time_fallback(current_char, context)
@@ -670,6 +742,10 @@ class CombatPlanner:
                 continue
             if char == current_char:
                 continue
+            if self._is_abyss_team() and not self._abyss_switch_candidate_allowed(
+                char, context
+            ):
+                continue
             score, reason, expected, breakdown = self._score_char(
                 char,
                 context,
@@ -693,6 +769,11 @@ class CombatPlanner:
                     expected,
                     breakdown.format(),
                 )
+
+        if self._is_abyss_team():
+            kept = self._abyss_keep_main_dps(current_char, best_decision)
+            if kept is not None:
+                best_decision = kept
 
         self._log_switch_decision(current_char, best_decision)
         return best_decision
@@ -832,9 +913,11 @@ class CombatPlanner:
             return True
         return any(request_blocks_entry_flow(request) for request in self.state.active_requests)
 
-    def _can_use_field_time_fallback(self) -> bool:
+    def _can_use_field_time_fallback(self, current_char: "BaseChar | None" = None) -> bool:
         if self.state.locked_route is not None:
             return False
+        if self._is_abyss_team():
+            return current_char is not None and current_char is self._abyss_main_dps()
         return not any(
             request_blocks_entry_flow(request) for request in self.state.active_requests
         )
@@ -856,9 +939,19 @@ class CombatPlanner:
         reaction_target = self.task.find_element_reaction_target(current_char)
         if not self._can_switch_to(reaction_target) or reaction_target == current_char:
             return None
+        reason = "element reaction"
+        if self._is_abyss_team():
+            if current_char is not self._abyss_main_dps():
+                return None
+            if not self._abyss_main_window_ready(current_char):
+                return None
+            target_context = self.context_for(reaction_target, {})
+            if self._abyss_real_switch_action(reaction_target, target_context) is None:
+                return None
+            reason = "element reaction (main DPS window + executable E/Q)"
         return SwitchDecision(
             reaction_target,
-            "element reaction",
+            reason,
             999500,
             has_intro,
             None,
@@ -1143,7 +1236,16 @@ class CombatPlanner:
         self, char: "BaseChar", request: _RouteRequest, step: FollowupStep
     ) -> ActionResult:
         logger.info(f"strict route wait {char}: {request.reason} / {step.reason}")
-        char.continues_normal_attack(0.15)
+        if self._is_abyss_team():
+            from src.combat.team_strategies import is_abyss_setup_only_char
+
+            if is_abyss_setup_only_char(char, self.state.chars):
+                char.check_combat()
+                char.sleep(0.15)
+            else:
+                char.continues_normal_attack(0.15)
+        else:
+            char.continues_normal_attack(0.15)
         return ActionResult(
             name="wait_for_strict_route_action",
             success=True,

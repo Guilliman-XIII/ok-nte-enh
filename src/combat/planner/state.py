@@ -14,6 +14,7 @@ from .requests import (
     request_complete_switch,
     request_fulfilled,
     request_has_expiration,
+    request_is_switch,
 )
 from .types import (
     ActionIntent,
@@ -158,7 +159,13 @@ class CombatState:
                 self.fulfill_locked_route()
 
     def record_switch(self, target_char: "BaseChar") -> None:
-        """记录一次实际切人，并消费匹配的 switch request。"""
+        """记录一次实际切人，并消费匹配的 switch request.
+
+        当切人由更高优先级的决策 (如 element reaction) 驱动时, 未匹配的
+        switch request 会变为陈旧请求. 这些陈旧请求如果不清理, 会在后续
+        _switch_request_decision 中被错误地选为下一个切人目标, 导致循环链
+        错位. 因此, 任何未被本次切人消费的 switch request 都应被过期.
+        """
 
         active_requests = []
         for request in self.active_requests:
@@ -177,6 +184,11 @@ class CombatState:
                 request.finish(RequestStatus.FULFILLED)
                 request.close()
                 logger.info(f"switch request fulfilled: {request.reason}")
+                continue
+            if request_is_switch(request):
+                request.finish(RequestStatus.EXPIRED)
+                request.close()
+                logger.info(f"switch request expired (bypassed): {request.reason}")
                 continue
             active_requests.append(request)
         self.active_requests = active_requests

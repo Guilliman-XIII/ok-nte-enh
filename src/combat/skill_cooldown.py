@@ -6,7 +6,7 @@ ourselves: when a character successfully casts a skill we stamp the moment, and
 readiness is simply ``now >= stamp + cooldown``. No screen reading required.
 
 This is the foundation the scatter-triggered gather feature uses to know whether
-a gather character (Sakiri / Jiuyuan) can actually cast right now. It is pure
+a gather character (Sakiri / Iloy) can actually cast right now. It is pure
 logic with an injectable clock so it unit tests without a game or ``time`` patch.
 
 Caveats (recording-unverified):
