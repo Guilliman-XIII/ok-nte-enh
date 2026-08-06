@@ -7,7 +7,12 @@
 
 ## About
 
-This project is an automation assistant for *Neverness To Everness* players. It builds on image-recognition automation and focuses on **auto combat** and **dual-team Abyss** capabilities, for players who want to solo-farm the Abyss or AFK-farm EXP.
+> [!IMPORTANT]
+> **This project is fully developed on top of [ok-nte](https://github.com/BnanZ0/ok-nte) and is an extension of ok-nte's auto-combat logic.**
+
+This project is a fork of [ok-nte](https://github.com/BnanZ0/ok-nte). All core combat logic - character battles, auto-dodge, and dual-team Abyss - is inherited from ok-nte's combat system. This repository does not reinvent the wheel; it only adds characters and strategies and improves combat transitions on top of ok-nte, without changing its original design, and continuously syncs upstream changes to stay aligned with the ok-nte mainline.
+
+In short: **ok-nte is the foundation, ok-nte-enh is an incremental combat extension for solo-farming the Abyss and AFK EXP.**
 
 ## ✨ Highlights
 
@@ -127,7 +132,7 @@ If you encounter issues, feel free to report them via the [**Issues**](https://g
 
 ## 🔗 Acknowledgments
 
-This project is developed based on the [ok-script](https://github.com/ok-oldking/ok-script) framework and draws on open-source community practices. Thanks to all open-source contributors.
+This project is **fully developed on top of [ok-nte](https://github.com/BnanZ0/ok-nte)**, extending its auto-combat logic, and all core combat logic is inherited from ok-nte. It also builds on the [ok-script](https://github.com/ok-oldking/ok-script) framework. Thanks to the ok-nte and ok-script developers and the open-source community.
 
 ## 📄 License
 
